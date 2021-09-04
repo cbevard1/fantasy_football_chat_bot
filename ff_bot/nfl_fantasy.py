@@ -1,6 +1,5 @@
 import re
-import requests
-import aiohttp
+from aiohttp import ClientSession
 import time
 import asyncio
 from bs4 import BeautifulSoup
@@ -8,7 +7,8 @@ from .logger import Logger
 from .team import Team
 from typing import List, Tuple
 from .constants import FANTASY_NFL_ROOT_URL, HEADERS
-from .util import WebScraper, WebScraper2
+from .util import WebScraper
+from .matchup import Matchup
 
 
 # all the bot needs are box_scores, current_week, teams, power_rankings implementations for now
@@ -16,54 +16,65 @@ class League:
     """Creates a League instance for public nfl league"""
 
     def __init__(self, league_id: int, debug=False):
-        t = time.time()
+        init_start_time = time.time()
         self.logger = Logger(name='ffl', debug=debug)
         self.league_id = league_id
         self.league_size = 12
         self.teams = []
-        self.draft = []
-        self.player_map = {}
+        self.matchups = []
         asyncio.run(self._fetch_league())
-        # asyncio.run(self.run_async())
-        t2 = time.time()
-        print(t2 - t)
+        print(time.time() - init_start_time)
 
     async def _fetch_league(self):
         # from the league home page get the number of teams, the links for each team, and the current week
         league_url = '{}/league/{}'.format(FANTASY_NFL_ROOT_URL, self.league_id)
-        page = requests.get(league_url, headers=HEADERS)
-        soup = BeautifulSoup(page.content, 'html.parser')
+        async with ClientSession() as session:
+            async with session.get(league_url) as response:
+                page = await response.read()
+                soup = BeautifulSoup(page, 'lxml')
 
-        # get the league size
-        standings_table = soup.find(id="leagueHomeStandings")
-        table = standings_table.find(lambda tag: tag.name == 'tbody')
-        rows = table.findAll(lambda tag: tag.name == 'tr')
-        self.league_size = len(rows)
+                # get the league size
+                standings_table = soup.find(id="leagueHomeStandings")
+                table = standings_table.find(lambda tag: tag.name == 'tbody')
+                rows = table.findAll(lambda tag: tag.name == 'tr')
+                self.league_size = len(rows)
 
-        # get the urls, fab, pts for, and pts against for each team
-        tasks = []
-        for row in rows:
-            url = '{}{}'.format(FANTASY_NFL_ROOT_URL, row.find("a", attrs={"class": re.compile(r'^teamName*')})['href'])
-            name = row.find("a", attrs={"class": re.compile(r'^teamName*')}).text.strip()
-            standing = row.find("td", attrs={"class": re.compile(r'^teamRank*')}).text.strip()
-            if(standing is ''):
-                standing = 1
-            fab = 0#float(row.find("td", attrs={"class": re.compile(r'^teamWaiverBudget*')}).text.strip()) TODO put back
-            pts_for = float(row.find("td", attrs={"class": re.compile(r'^teamPts teamPtsSort stat numeric$')}).text.strip())
-            pts_against = float(row.find("td", attrs={"class": re.compile(r'^teamPts teamPtsSort stat numeric last$')}).text.strip())
-            team = Team(url, name, standing, fab, pts_for, pts_against)
-            self.teams.append(team)
-            tasks.append(
-                asyncio.create_task(
-                    team._fetch_team()
-                )
-            )
-        await asyncio.gather(*tasks)
-        # asyncio.run(self.run_async())
-        tasks = []
-        for team in self.teams:
-            tasks.append(asyncio.create_task(WebScraper.fetch(team.roster)))
-        await asyncio.gather(*tasks)
+                # get the current week from the page
+                scoring_strip = soup.find("div", attrs={"id": "leagueHomeScoreStrip"})
+                current_week = scoring_strip \
+                    .find("ul", attrs={"class": re.compile(r"^weekNav")}) \
+                    .find("li", attrs={"href": None}).text \
+                    .split(" ")[1]
+                self.nfl_week = int(current_week)
+
+                # get the matchup urls
+                matchup_tags = scoring_strip\
+                    .find("div", attrs={"class": "teamNav"})\
+                    .find_all("a")
+                for matchup_url in matchup_tags:
+                    # hrefs.append("{}{}".format(FANTASY_NFL_ROOT_URL, matchup_url['href']))
+                    self.matchups.append(Matchup("{}{}".format(FANTASY_NFL_ROOT_URL, matchup_url['href'])))
+
+                # get the urls, fab, pts for, and pts against for each team
+                for row in rows:
+                    url = '{}{}'.format(FANTASY_NFL_ROOT_URL, row.find("a", attrs={"class": re.compile(r'^teamName*')})['href'])
+                    name = row.find("a", attrs={"class": re.compile(r'^teamName*')}).text.strip()
+                    standing = row.find("td", attrs={"class": re.compile(r'^teamRank*')}).text.strip()
+                    if(standing is ''):
+                        standing = 1
+                    fab = 0#float(row.find("td", attrs={"class": re.compile(r'^teamWaiverBudget*')}).text.strip()) TODO put back
+                    pts_for = float(row.find("td", attrs={"class": re.compile(r'^teamPts teamPtsSort stat numeric$')}).text.strip())
+                    pts_against = float(row.find("td", attrs={"class": re.compile(r'^teamPts teamPtsSort stat numeric last$')}).text.strip())
+                    team = Team(url, name, standing, fab, pts_for, pts_against)
+                    self.teams.append(team)
+                await WebScraper.fetch_team(self.teams)
+                await WebScraper.fetch_matchups(self.matchups)
+
+                # load players for each team
+                tasks = []
+                for team in self.teams:
+                    tasks.append(asyncio.create_task(WebScraper.fetch_players(team.roster)))
+                await asyncio.gather(*tasks)
 
     def _get_positional_ratings(self, week: int):
         params = {
@@ -83,26 +94,9 @@ class League:
 
     def refresh(self):
         '''Gets latest league data. This can be used instead of creating a new League class each week'''
-        data = super()._fetch_league()
-
-        self.nfl_week = data['status']['latestScoringPeriod']
-        self._fetch_teams(data)
-
-    def load_roster_week(self, week: int) -> None:
-        '''Sets Teams Roster for a Certain Week'''
-        params = {
-            'view': 'mRoster',
-            'scoringPeriodId': week
-        }
-        data = self.espn_request.league_get(params=params)
-
-        team_roster = {}
-        for team in data['teams']:
-            team_roster[team['id']] = team['roster']
-
-        for team in self.teams:
-            roster = team_roster[team.team_id]
-            team._fetch_roster(roster, self.year)
+        self.teams = []
+        self.matchups = []
+        asyncio.run(self._fetch_league())
 
     def standings(self) -> List[Team]:
         standings = sorted(self.teams, key=lambda x: x.final_standing if x.final_standing != 0 else x.standing, reverse=False)

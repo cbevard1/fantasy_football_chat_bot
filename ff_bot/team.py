@@ -15,7 +15,9 @@ class Team(object):
     """Teams are part of the league"""
 
     def __init__(self, url, name, standing, fab, pts_for, pts_against):
+        self.team_id = None
         self.url = url
+        self.id = self.get_id()
         self.points_for = pts_for
         self.points_against = pts_against
         self.fab = fab
@@ -29,66 +31,55 @@ class Team(object):
         self.schedule = []
         self.streak_len = None
         self.streak_type = None
-        # asyncio.ensure_future(self._fetch_team())
-        # self._fetch_team()
-        # self.schedule = None
-        # self.logo_url = None
+
+    def get_id(self):
+        pattern = re.compile(r'^https://fantasy.nfl.com/league/\d+/team/(\d{1,})')
+        return int(pattern.match(self.url).group(1))
 
     def __repr__(self):
         return 'Team(%s)' % (self.team_name,)
 
-    async def _fetch_team(self):
-        print("Started Team...")
-        async with ClientSession() as session:
-            async with session.get(self.url) as response:
-                page = await response.read()
-                soup = BeautifulSoup(page, 'html.parser')
+    async def load_team(self, soup):
+        # get owner name
+        team_info = soup.find("div", attrs={"class": "mod", "id": "teamDetail"})
+        owner_block = team_info.find("ul", attrs={"class": "owners"})
+        self.team_owner = owner_block.find("a", attrs={"class": re.compile(r'^userName*')}).text.strip()
 
-                # get owner name
-                team_info = soup.find("div", attrs={"class": "mod", "id": "teamDetail"})
-                owner_block = team_info.find("ul", attrs={"class": "owners"})
-                self.team_owner = owner_block.find("a", attrs={"class": re.compile(r'^userName*')}).text.strip()
+        # get players
+        # nfl.com splits players into two tables. One for offensive players, and another for DST
+        # get both table bodies and combine the result set before creating a player list
+        roster_table = soup.find("div", attrs={"id": "teamHome"})
+        offense_table = roster_table.find("div", attrs={"id": "tableWrap-O"}).find("table").find("tbody")
+        defense_table = roster_table.find("div", attrs={"id": "tableWrap-DT"}).find("table").find("tbody")
+        rows = offense_table.findAll("tr", attrs={"class": re.compile(r"^player-\d")}) + defense_table.findAll("tr", attrs={"class": re.compile(r"^player-\d")})
 
-                # get players
-                # nfl.com splits players into two tables. One for offensive players, and another for DST
-                # get both table bodies and combine the result set before creating a player list
-                roster_table = soup.find("div", attrs={"id": "teamHome"})
-                offense_table = roster_table.find("div", attrs={"id": "tableWrap-O"}).find("table").find("tbody")
-                defense_table = roster_table.find("div", attrs={"id": "tableWrap-DT"}).find("table").find("tbody")
-                rows = offense_table.findAll("tr", attrs={"class": re.compile(r"^player-\d")}) + defense_table.findAll("tr", attrs={"class": re.compile(r"^player-\d")})
-
-                # tasks = []
-                for row in rows:
-                    try:
-                        txt = row.text
-                        if (re.search("--empty--", txt)):
-                            continue  # for an empty roster spot just continue to the next row
-                        else:
-                            # there might be an error here with a missing '/' between the root url and the player card url
-                            player_tag = row.find("a", attrs={"class": re.compile("^playerCard*")})
-                            player_url = "{}{}".format(FANTASY_NFL_ROOT_URL, player_tag["href"])
-                            player_name = player_tag.text
-                            pos_team_arr = player_tag.findNext("em").text.split("-")
-                            position = pos_team_arr[0].strip()
-                            if (len(pos_team_arr) == 2):
-                                team = pos_team_arr[1].strip()
-                            elif (position == "DEF"):
-                                team = None  # TODO lookup city abbr from name
-                            else:
-                                team = "Free Agent"
-                            player = Player(player_url, player_name, team, position)
-                            self.roster.append(player)
-                            # tasks.append(
-                            #     asyncio.create_task(
-                            #         player._fetch_player()
-                            #     )
-                            # )
-                    except TypeError:
-                        traceback.print_exc(file=sys.stdout)
-                        continue
-
-                # await asyncio.gather(*self.async_tasks)
-                print("Finished Team")
+        # tasks = []
+        for row in rows:
+            try:
+                txt = row.text
+                if (re.search("--empty--", txt)):
+                    continue  # for an empty roster spot just continue to the next row
+                else:
+                    player_benched = False
+                    if row.find("td", attrs={"class": "teamPosition first"}).text == "BN":
+                        player_benched = True
+                    # there might be an error here with a missing '/' between the root url and the player card url
+                    player_tag = row.find("a", attrs={"class": re.compile("^playerCard*")})
+                    player_url = "{}{}".format(FANTASY_NFL_ROOT_URL, player_tag["href"])
+                    player_name = player_tag.text
+                    pos_team_arr = player_tag.findNext("em").text.split("-")
+                    position = pos_team_arr[0].strip()
+                    if (len(pos_team_arr) == 2):
+                        team = pos_team_arr[1].strip()
+                    elif (position == "DEF"):
+                        team = None  # TODO lookup city abbr from name
+                    else:
+                        team = "Free Agent"
+                    player = Player(player_url, player_name, team, position, player_benched)
+                    self.roster.append(player)
+            except TypeError:
+                traceback.print_exc(file=sys.stdout)
+                continue
 
     def _fetch_roster(self, data, year):
         '''Fetch teams roster'''

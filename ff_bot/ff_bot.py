@@ -4,7 +4,6 @@ import os
 import random
 from apscheduler.schedulers.blocking import BlockingScheduler
 import nfl_fantasy
-#from espn_api.football import League
 
 class GroupMeException(Exception):
     pass
