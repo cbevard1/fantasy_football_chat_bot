@@ -1,4 +1,13 @@
 flake8==3.3.0
 apscheduler>=3.3.0
 requests>=2.0.0,<3.0.0
-espn_api>=0.18.0
+# espn_api>=0.18.0
+bs4~=0.0.1
+pip~=21.2.3
+wheel~=0.34.2
+tornado~=6.1
+setuptools~=57.4.0
+beautifulsoup4~=4.9.3
+aiohttp
+cchardet
+lxml
