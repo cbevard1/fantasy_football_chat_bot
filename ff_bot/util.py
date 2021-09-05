@@ -1,7 +1,7 @@
 import asyncio
 from aiohttp import ClientSession
 from bs4 import BeautifulSoup
-from .player import Player
+from player import Player
 import threading
 import concurrent.futures
 from multiprocessing import Pool
@@ -28,10 +28,10 @@ class WebScraper(object):
                     await team.load_team(soup)
 
     @staticmethod
-    async def fetch_matchups(matchups):
+    async def fetch_matchups(matchups, teams):
         async with ClientSession() as session:
             for matchup in matchups:
                 async with session.get(matchup.url) as response:
                     page = await response.read()
                     soup = BeautifulSoup(page, 'lxml')
-                    await matchup.load_matchup(soup)
+                    await matchup.load_matchup(soup, teams)

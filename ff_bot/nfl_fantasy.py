@@ -3,12 +3,13 @@ from aiohttp import ClientSession
 import time
 import asyncio
 from bs4 import BeautifulSoup
-from .logger import Logger
-from .team import Team
+from logger import Logger
+from team import Team
 from typing import List, Tuple
-from .constants import FANTASY_NFL_ROOT_URL, HEADERS
-from .util import WebScraper
-from .matchup import Matchup
+from constants import FANTASY_NFL_ROOT_URL, HEADERS
+from util import WebScraper
+from matchup import Matchup
+from tabulate import tabulate
 
 
 # all the bot needs are box_scores, current_week, teams, power_rankings implementations for now
@@ -20,8 +21,9 @@ class League:
         self.logger = Logger(name='ffl', debug=debug)
         self.league_id = league_id
         self.league_size = 12
-        self.teams = []
+        self.teams = {}
         self.matchups = []
+        self.current_week = None
         asyncio.run(self._fetch_league())
         print(time.time() - init_start_time)
 
@@ -45,7 +47,7 @@ class League:
                     .find("ul", attrs={"class": re.compile(r"^weekNav")}) \
                     .find("li", attrs={"href": None}).text \
                     .split(" ")[1]
-                self.nfl_week = int(current_week)
+                self.current_week = int(current_week)
 
                 # get the matchup urls
                 matchup_tags = scoring_strip\
@@ -65,14 +67,16 @@ class League:
                     fab = 0#float(row.find("td", attrs={"class": re.compile(r'^teamWaiverBudget*')}).text.strip()) TODO put back
                     pts_for = float(row.find("td", attrs={"class": re.compile(r'^teamPts teamPtsSort stat numeric$')}).text.strip())
                     pts_against = float(row.find("td", attrs={"class": re.compile(r'^teamPts teamPtsSort stat numeric last$')}).text.strip())
-                    team = Team(url, name, standing, fab, pts_for, pts_against)
-                    self.teams.append(team)
-                await WebScraper.fetch_team(self.teams)
-                await WebScraper.fetch_matchups(self.matchups)
+                    team_id = int(url.split('/')[-1])
+                    team = Team(team_id, url, name, standing, fab, pts_for, pts_against)
+                    self.teams[team_id] = team
+                    # self.teams.append(team)
+                await WebScraper.fetch_team(self.teams.values())
+                await WebScraper.fetch_matchups(self.matchups, self.teams)
 
                 # load players for each team
                 tasks = []
-                for team in self.teams:
+                for team in self.teams.values():
                     tasks.append(asyncio.create_task(WebScraper.fetch_players(team.roster)))
                 await asyncio.gather(*tasks)
 
@@ -178,47 +182,28 @@ class League:
     #
     #     return matchups
 
-    # def box_scores(self, week: int = None) -> List[BoxScore]:
-    #     '''Returns list of box score for a given week\n
-    #     Should only be used with most recent season'''
-    #     if self.year < 2019:
-    #         raise Exception('Cant use box score before 2019')
-    #     matchup_period = self.currentMatchupPeriod
-    #     scoring_period = self.current_week
-    #     if week and week <= self.current_week:
-    #         scoring_period = week
-    #         for matchup_id in self.settings.matchup_periods:
-    #             if week in self.settings.matchup_periods[matchup_id]:
-    #                 matchup_period = matchup_id
-    #                 break
-    #
-    #     params = {
-    #         'view': ['mMatchupScore', 'mScoreboard'],
-    #         'scoringPeriodId': scoring_period,
-    #     }
-    #
-    #     filters = {"schedule": {"filterMatchupPeriodIds": {"value": [matchup_period]}}}
-    #     headers = {'x-fantasy-filter': json.dumps(filters)}
-    #     data = self.espn_request.league_get(params=params, headers=headers)
-    #
-    #     schedule = data['schedule']
-    #     pro_schedule = self._get_pro_schedule(scoring_period)
-    #     positional_rankings = self._get_positional_ratings(scoring_period)
-    #     box_data = [BoxScore(matchup, pro_schedule, positional_rankings, scoring_period, self.year) for matchup in schedule]
-    #
-    #     for team in self.teams:
-    #         for matchup in box_data:
-    #             if matchup.home_team == team.team_id:
-    #                 matchup.home_team = team
-    #             elif matchup.away_team == team.team_id:
-    #                 matchup.away_team = team
-    #     return box_data
+    def box_scores(self, week: int = None):
+        '''Returns list of box score for a given week\n
+        Should only be used with most recent season'''
 
-    # def power_rankings(self, week: int = None): TODO
+        header = ["Team", "Projections", "Scores"]
+        rows = []
+        for matchup in self.matchups:
+            # col1 = "{}\n{}".format(matchup.opp1.team.team_name, matchup.opp2.team.team_name)
+            # col2 = "{}\n{}".format(str(matchup.opp1.projected_score), str(matchup.opp2.projected_score))
+            # col3 = "{}\n{}".format(str(matchup.opp1.score), str(matchup.opp2.score))
+            # rows.append([col1, col2, col3])
+            score1 = [matchup.opp1.team.team_name, matchup.opp1.projected_score, matchup.opp1.score]
+            score2 = [matchup.opp2.team.team_name, matchup.opp2.projected_score, matchup.opp2.score]
+            delim = ['------------------------------', '------------------', '--------']
+            rows.append(score1)
+            rows.append(score2)
+            rows.append(delim)
+        return tabulate(rows, headers=header, tablefmt="simple")
+
+    # def power_rankings(self):
     #     '''Return power rankings for any week'''
     #
-    #     if not week or week <= 0 or week > self.current_week:
-    #         week = self.current_week
     #     # calculate win for every week
     #     win_matrix = []
     #     teams_sorted = sorted(self.teams, key=lambda x: x.team_id,

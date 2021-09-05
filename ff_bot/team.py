@@ -1,23 +1,17 @@
 import re
 import sys
 import traceback
-import asyncio
-from aiohttp import ClientSession
 
-import requests
-from bs4 import BeautifulSoup
-
-from .constants import HEADERS, FANTASY_NFL_ROOT_URL
-from .player import Player
+from constants import HEADERS, FANTASY_NFL_ROOT_URL
+from player import Player
 
 
 class Team(object):
     """Teams are part of the league"""
 
-    def __init__(self, url, name, standing, fab, pts_for, pts_against):
-        self.team_id = None
+    def __init__(self, team_id, url, name, standing, fab, pts_for, pts_against):
+        self.id = team_id
         self.url = url
-        self.id = self.get_id()
         self.points_for = pts_for
         self.points_against = pts_against
         self.fab = fab

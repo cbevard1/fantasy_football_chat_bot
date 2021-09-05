@@ -54,10 +54,13 @@ class Player(object):
         self.posRank = pos_rank
         self.image_url = image_url
 
-    def _fetch_points_for_week(self, week):
+    def fetch_points_for_week(self, week):
         if(type(week) is not int or week < 1 or week > 18):
             return 0
         return self.points_dict[week]
+
+    def get_points_total(self):
+        return sum(self.points_dict.values())
 
     def __repr__(self):
         return 'Player(%s)' % (self.name,)

@@ -3,94 +3,22 @@ import json
 import os
 import random
 from apscheduler.schedulers.blocking import BlockingScheduler
-import nfl_fantasy
+from nfl_fantasy import League
+import discord
+from PIL import Image, ImageDraw, ImageFont
 
-class GroupMeException(Exception):
-    pass
+client = discord.Client()
 
-class SlackException(Exception):
-    pass
+@client.event
+async def on_ready():
+    print("bot started...")
+    print(client.guilds)
+    print(os.getcwd())
+    guild = client.get_guild(id=883888337314803763)
+    print(guild.text_channels)
+    test_channel = guild.get_channel(883888337314803766)
+    await test_channel.send(file=discord.File('../pil_text_font.png'))
 
-class DiscordException(Exception):
-    pass
-
-class GroupMeBot(object):
-    #Creates GroupMe Bot to send messages
-    def __init__(self, bot_id):
-        self.bot_id = bot_id
-
-    def __repr__(self):
-        return "GroupMeBot(%s)" % self.bot_id
-
-    def send_message(self, text):
-        #Sends a message to the chatroom
-        template = {
-                    "bot_id": self.bot_id,
-                    "text": text,
-                    "attachments": []
-                    }
-
-        headers = {'content-type': 'application/json'}
-
-        if self.bot_id not in (1, "1", ''):
-            r = requests.post("https://api.groupme.com/v3/bots/post",
-                              data=json.dumps(template), headers=headers)
-            if r.status_code != 202:
-                raise GroupMeException('Invalid BOT_ID')
-
-            return r
-
-class SlackBot(object):
-    #Creates GroupMe Bot to send messages
-    def __init__(self, webhook_url):
-        self.webhook_url = webhook_url
-
-    def __repr__(self):
-        return "Slack Webhook Url(%s)" % self.webhook_url
-
-    def send_message(self, text):
-        #Sends a message to the chatroom
-        message = "```{0}```".format(text)
-        template = {
-                    "text":message
-                    }
-
-        headers = {'content-type': 'application/json'}
-
-        if self.webhook_url not in (1, "1", ''):
-            r = requests.post(self.webhook_url,
-                              data=json.dumps(template), headers=headers)
-
-            if r.status_code != 200:
-                raise SlackException('WEBHOOK_URL')
-
-            return r
-
-class DiscordBot(object):
-    #Creates Discord Bot to send messages
-    def __init__(self, webhook_url):
-        self.webhook_url = webhook_url
-
-    def __repr__(self):
-        return "Discord Webhook Url(%s)" % self.webhook_url
-
-    def send_message(self, text):
-        #Sends a message to the chatroom
-        message = "```{0}```".format(text)
-        template = {
-                    "content":message
-                    }
-
-        headers = {'content-type': 'application/json'}
-
-        if self.webhook_url not in (1, "1", ''):
-            r = requests.post(self.webhook_url,
-                              data=json.dumps(template), headers=headers)
-
-            if r.status_code != 204:
-                raise DiscordException('WEBHOOK_URL')
-
-            return r
 
 def get_random_phrase():
     phrases = ['I\'m dead inside',
@@ -186,16 +114,22 @@ def all_played(lineup):
 
 def get_matchups(league, random_phrase, week=None):
     #Gets current week's Matchups
-    matchups = league.box_scores(week=week)
+    img = Image.new('RGB', (350, 350), color=(255, 255, 255))
 
-    score = ['%s(%s-%s) vs %s(%s-%s)' % (i.home_team.team_name, i.home_team.wins, i.home_team.losses,
-             i.away_team.team_name, i.away_team.wins, i.away_team.losses) for i in matchups
-             if i.away_team]
+    fnt = ImageFont.truetype('/Library/Fonts/Arial.ttf', 15)
+    d = ImageDraw.Draw(img)
+    d.text((10, 10), league.box_scores(), font=fnt, fill=(0, 0, 0))
 
-    text = ['Matchups'] + score
-    if random_phrase:
-        text = text + get_random_phrase()
-    return '\n'.join(text)
+    img.save('pil_text_font.png')
+
+    # score = ['%s(%s-%s) vs %s(%s-%s)' % (i.home_team.team_name, i.home_team.wins, i.home_team.losses,
+    #          i.away_team.team_name, i.away_team.wins, i.away_team.losses) for i in matchups
+    #          if i.away_team]
+    #
+    # text = ['Matchups'] + score
+    # if random_phrase:
+    #     text = text + get_random_phrase()
+    # return '\n'.join(text)
 
 def get_close_scores(league, week=None):
     #Gets current closest scores (15.999 points or closer)
@@ -351,9 +285,9 @@ def bot_main(function):
     except KeyError:
         random_phrase = False
 
-    bot = GroupMeBot(bot_id)
-    slack_bot = SlackBot(slack_webhook_url)
-    discord_bot = DiscordBot(discord_webhook_url)
+    # bot = GroupMeBot(bot_id)
+    # slack_bot = SlackBot(slack_webhook_url)
+    # discord_bot = DiscordBot(discord_webhook_url)
 
     if swid == '{1}' and espn_s2 == '1': # and espn_username == '1' and espn_password == '1':
         league = League(league_id=league_id, year=year)
@@ -371,8 +305,6 @@ def bot_main(function):
         print(get_scoreboard_short(league))
         print(get_standings(league, top_half_scoring))
         function="get_final"
-        bot.send_message("Testing")
-        slack_bot.send_message("Testing")
         discord_bot.send_message("Testing")
 
     text = ''
@@ -406,10 +338,8 @@ def bot_main(function):
     else:
         text = "Something happened. HALP"
 
-    if text != '' and not test:
-        bot.send_message(text)
-        slack_bot.send_message(text)
-        discord_bot.send_message(text)
+    # if text != '' and not test:
+        # discord_bot.send_message(text)
 
     if test:
         #print "get_final" function
@@ -431,10 +361,12 @@ if __name__ == '__main__':
         my_timezone = os.environ["TIMEZONE"]
     except KeyError:
         my_timezone='America/New_York'
-
+    token = os.getenv('TOKEN')
+    print(token)
+    client.run(token)
     game_timezone='America/New_York'
-    bot_main("init")
-    sched = BlockingScheduler(job_defaults={'misfire_grace_time': 15*60})
+    # bot_main("init")
+    # sched = BlockingScheduler(job_defaults={'misfire_grace_time': 15*60})
 
     #power rankings:                     tuesday evening at 6:30pm local time.
     #matchups:                           thursday evening at 7:30pm east coast time.
@@ -444,27 +376,27 @@ if __name__ == '__main__':
     #score update:                       friday, monday, and tuesday morning at 7:30am local time.
     #score update:                       sunday at 4pm, 8pm east coast time.
 
-    sched.add_job(bot_main, 'cron', ['get_power_rankings'], id='power_rankings',
-        day_of_week='tue', hour=18, minute=30, start_date=ff_start_date, end_date=ff_end_date,
-        timezone=my_timezone, replace_existing=True)
-    sched.add_job(bot_main, 'cron', ['get_matchups'], id='matchups',
-        day_of_week='thu', hour=19, minute=30, start_date=ff_start_date, end_date=ff_end_date,
-        timezone=game_timezone, replace_existing=True)
-    sched.add_job(bot_main, 'cron', ['get_close_scores'], id='close_scores',
-        day_of_week='mon', hour=18, minute=30, start_date=ff_start_date, end_date=ff_end_date,
-        timezone=game_timezone, replace_existing=True)
-    sched.add_job(bot_main, 'cron', ['get_final'], id='final',
-        day_of_week='tue', hour=7, minute=30, start_date=ff_start_date, end_date=ff_end_date,
-        timezone=my_timezone, replace_existing=True)
-    sched.add_job(bot_main, 'cron', ['get_standings'], id='standings',
-        day_of_week='wed', hour=7, minute=30, start_date=ff_start_date, end_date=ff_end_date,
-        timezone=my_timezone, replace_existing=True)
-    sched.add_job(bot_main, 'cron', ['get_scoreboard_short'], id='scoreboard1',
-        day_of_week='fri,mon', hour=7, minute=30, start_date=ff_start_date, end_date=ff_end_date,
-        timezone=my_timezone, replace_existing=True)
-    sched.add_job(bot_main, 'cron', ['get_scoreboard_short'], id='scoreboard2',
-        day_of_week='sun', hour='16,20', start_date=ff_start_date, end_date=ff_end_date,
-        timezone=game_timezone, replace_existing=True)
-
-    print("Ready!")
-    sched.start()
+    # sched.add_job(bot_main, 'cron', ['get_power_rankings'], id='power_rankings',
+    #     day_of_week='tue', hour=18, minute=30, start_date=ff_start_date, end_date=ff_end_date,
+    #     timezone=my_timezone, replace_existing=True)
+    # sched.add_job(bot_main, 'cron', ['get_matchups'], id='matchups',
+    #     day_of_week='thu', hour=19, minute=30, start_date=ff_start_date, end_date=ff_end_date,
+    #     timezone=game_timezone, replace_existing=True)
+    # sched.add_job(bot_main, 'cron', ['get_close_scores'], id='close_scores',
+    #     day_of_week='mon', hour=18, minute=30, start_date=ff_start_date, end_date=ff_end_date,
+    #     timezone=game_timezone, replace_existing=True)
+    # sched.add_job(bot_main, 'cron', ['get_final'], id='final',
+    #     day_of_week='tue', hour=7, minute=30, start_date=ff_start_date, end_date=ff_end_date,
+    #     timezone=my_timezone, replace_existing=True)
+    # sched.add_job(bot_main, 'cron', ['get_standings'], id='standings',
+    #     day_of_week='wed', hour=7, minute=30, start_date=ff_start_date, end_date=ff_end_date,
+    #     timezone=my_timezone, replace_existing=True)
+    # sched.add_job(bot_main, 'cron', ['get_scoreboard_short'], id='scoreboard1',
+    #     day_of_week='fri,mon', hour=7, minute=30, start_date=ff_start_date, end_date=ff_end_date,
+    #     timezone=my_timezone, replace_existing=True)
+    # sched.add_job(bot_main, 'cron', ['get_scoreboard_short'], id='scoreboard2',
+    #     day_of_week='sun', hour='16,20', start_date=ff_start_date, end_date=ff_end_date,
+    #     timezone=game_timezone, replace_existing=True)
+    #
+    # print("Ready!")
+    # sched.start()
