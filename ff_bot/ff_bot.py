@@ -1,23 +1,37 @@
-import requests
-import json
+import asyncio
 import os
 import random
-from apscheduler.schedulers.blocking import BlockingScheduler
-from nfl_fantasy import League
+from collections import defaultdict
+
+import nest_asyncio
+import aiocron
 import discord
 from PIL import Image, ImageDraw, ImageFont
 
+from constants import FANTASY_NFL_ROOT_URL
+from nfl_fantasy import League
+
+nest_asyncio.apply()  # allow nested asyncio event loops
+league = League(os.getenv('LEAGUE_ID'), os.getenv('LEAGUE_YEAR'))
 client = discord.Client()
+
+
+def get_channel():
+    guild = client.get_guild(id=int(os.getenv('GUILD_ID')))
+    channel = guild.get_channel(int(os.getenv('CHANNEL_ID')))
+    return channel
+
+
+def refresh_data():
+    print('blocking shit...')
+    asyncio.get_event_loop().run_until_complete(league.fetch_league())
+    print('done')
+
 
 @client.event
 async def on_ready():
     print("bot started...")
-    print(client.guilds)
-    print(os.getcwd())
-    guild = client.get_guild(id=883888337314803763)
-    print(guild.text_channels)
-    test_channel = guild.get_channel(883888337314803766)
-    await test_channel.send(file=discord.File('../pil_text_font.png'))
+    await get_channel().send("```{}```".format(league.power_rankings()))
 
 
 def get_random_phrase():
@@ -35,66 +49,104 @@ def get_random_phrase():
                'Sigh']
     return [random.choice(phrases)]
 
+
 def get_scoreboard_short(league, week=None):
-    #Gets current week's scoreboard
+    # Gets current week's scoreboard
     box_scores = league.box_scores(week=week)
     score = ['%s %.2f - %.2f %s' % (i.home_team.team_abbrev, i.home_score,
-             i.away_score, i.away_team.team_abbrev) for i in box_scores
+                                    i.away_score, i.away_team.team_abbrev) for i in box_scores
              if i.away_team]
     text = ['Score Update'] + score
     return '\n'.join(text)
 
-def get_projected_scoreboard(league, week=None):
-    #Gets current week's scoreboard projections
-    box_scores = league.box_scores(week=week)
-    score = ['%s %.2f - %.2f %s' % (i.home_team.team_abbrev, get_projected_total(i.home_lineup),
-                                    get_projected_total(i.away_lineup), i.away_team.team_abbrev) for i in box_scores
-             if i.away_team]
-    text = ['Approximate Projected Scores'] + score
-    return '\n'.join(text)
 
-def get_standings(league, top_half_scoring, week=None):
-    standings_txt = ''
-    teams = league.teams
-    standings = []
-    if not top_half_scoring:
-        for t in teams:
-            standings.append((t.wins, t.losses, t.team_name))
+@aiocron.crontab("30 16 * * 0")
+async def get_projected_scoreboard():
+    refresh_data()
 
-        standings = sorted(standings, key=lambda tup: tup[0], reverse=True)
-        standings_txt = [f"{pos + 1}: {team_name} ({wins} - {losses})" for \
-            pos, (wins, losses, team_name) in enumerate(standings)]
-    else:
-        top_half_totals = {t.team_name: 0 for t in teams}
-        if not week:
-            week = league.current_week
-        for w in range(1, week):
-            top_half_totals = top_half_wins(league, top_half_totals, w)
+    matchups = league.matchups
+    embed = discord.Embed(title="Scoreboard Update")
+    embed.set_image(url='https://media0.giphy.com/media/3o6Zt7gUslBylMFTkQ/200.gif')
+    embed.color = 0x00ccff
+    for matchup in matchups:
+        name_str = '**[{}] {}\n[{}] {}**'.format(matchup.opp1.score, matchup.opp1.team.team_name, matchup.opp2.score, matchup.opp2.team.team_name)
+        value_str = '_Projections:\n[{}] {}\n[{}] {}_'.format(matchup.opp1.projected_score, matchup.opp1.team.team_name, matchup.opp2.projected_score, matchup.opp2.team.team_name)
+        embed.add_field(name=name_str, value=value_str, inline=False)
+        embed.add_field(name='\b', value='\b', inline=False)
+    await get_channel().send(embed=embed)
 
-        for t in teams:
-            wins = top_half_totals[t.team_name] + t.wins
-            standings.append((wins, t.losses, t.team_name))
 
-        standings = sorted(standings, key=lambda tup: tup[0], reverse=True)
-        standings_txt = [f"{pos + 1}: {team_name} ({wins} - {losses}) (+{top_half_totals[team_name]})" for \
-            pos, (wins, losses, team_name) in enumerate(standings)]
-    text = ["Current Standings:"] + standings_txt
+@aiocron.crontab("30 8 * * 2")
+async def get_standings():
+    refresh_data()
 
-    return "\n".join(text)
+    standings = sorted(league.teams.values(), key=lambda team: team.standing, reverse=False)
+    url = "{}/league/{}".format(FANTASY_NFL_ROOT_URL, league.league_id)
+    embed = discord.Embed(title="League Standings", url=url)
+    embed.color = 0x9b9b9b
+    for team in standings:
+        value_str = '_\tPoints For: {}\n\tPoints Against: {}_'.format(team.points_for, team.points_against)
+        embed.add_field(name='**{}. {}** ({}-{}-{})'.format(team.standing, team.team_name, team.wins, team.losses, team.ties), value=value_str, inline=False)
+    await get_channel().send(embed=embed)
+
+
+@aiocron.crontab("30 8 * * *")
+async def get_recent_transactions():
+    refresh_data()
+
+    recent_drops = await league.recent_drops()
+    if len(recent_drops) > 0:
+        groups = defaultdict(list)
+        for drop in recent_drops:
+            groups[drop[-1]].append(drop)
+
+        url = "{}/league/{}/transactions?transactionType=drop".format(FANTASY_NFL_ROOT_URL, league.league_id)
+        embed = discord.Embed(title="Players Dropped", url=url)
+        embed.color = 0xfb0303
+        for group in groups.keys():
+            values = groups[group]
+            entries = []
+            for value in values:
+                entries.append('{} [{}]'.format(value[1], value[0]))
+            value_str = '\n'.join(entries)
+            embed.add_field(name='**{}**'.format(group), value=value_str, inline=False)
+        await get_channel().send(embed=embed)
+
+    recent_adds = await league.recent_adds()
+    if len(recent_adds) > 0:
+        groups = defaultdict(list)
+        for add in recent_adds:
+            groups[add[-1]].append(add)
+
+        url = "{}/league/{}/transactions?transactionType=add".format(FANTASY_NFL_ROOT_URL, league.league_id)
+        embed = discord.Embed(title="Players Added", url=url)
+        embed.color = 0x3903fb
+        faab_left = 0
+        for group in groups.keys():
+            values = groups[group]
+            entries = []
+            for value in values:
+                entries.append('${} {} [{}]'.format(value[0], value[3], value[2]))
+                faab_left = value[1]
+            value_str = '\n'.join(entries)
+            embed.add_field(name='**{} | FAAB: ${}**'.format(group, faab_left), value=value_str, inline=False)
+        await get_channel().send(embed=embed)
+
 
 def top_half_wins(league, top_half_totals, week):
     box_scores = league.box_scores(week=week)
 
     scores = [(i.home_score, i.home_team.team_name) for i in box_scores] + \
-            [(i.away_score, i.away_team.team_name) for i in box_scores if i.away_team]
+             [(i.away_score, i.away_team.team_name) for i in box_scores if i.away_team]
 
     scores = sorted(scores, key=lambda tup: tup[0], reverse=True)
 
-    for i in range(0, len(scores)//2):
+    for i in range(0, len(scores) // 2):
         points, team_name = scores[i]
         top_half_totals[team_name] += 1
 
     return top_half_totals
+
 
 def get_projected_total(lineup):
     total_projected = 0
@@ -106,14 +158,16 @@ def get_projected_total(lineup):
                 total_projected += i.projected_points
     return total_projected
 
+
 def all_played(lineup):
     for i in lineup:
         if i.slot_position != 'BE' and i.slot_position != 'IR' and i.game_played < 100:
             return False
     return True
 
+
 def get_matchups(league, random_phrase, week=None):
-    #Gets current week's Matchups
+    # Gets current week's Matchups
     img = Image.new('RGB', (350, 350), color=(255, 255, 255))
 
     fnt = ImageFont.truetype('/Library/Fonts/Arial.ttf', 15)
@@ -131,29 +185,31 @@ def get_matchups(league, random_phrase, week=None):
     #     text = text + get_random_phrase()
     # return '\n'.join(text)
 
+
 def get_close_scores(league, week=None):
-    #Gets current closest scores (15.999 points or closer)
+    # Gets current closest scores (15.999 points or closer)
     matchups = league.box_scores(week=week)
     score = []
 
     for i in matchups:
         if i.away_team:
             diffScore = i.away_score - i.home_score
-            if ( -16 < diffScore <= 0 and not all_played(i.away_lineup)) or (0 <= diffScore < 16 and not all_played(i.home_lineup)):
+            if (-16 < diffScore <= 0 and not all_played(i.away_lineup)) or (0 <= diffScore < 16 and not all_played(i.home_lineup)):
                 score += ['%s %.2f - %.2f %s' % (i.home_team.team_abbrev, i.home_score,
-                        i.away_score, i.away_team.team_abbrev)]
+                                                 i.away_score, i.away_team.team_abbrev)]
     if not score:
-        return('')
+        return ('')
     text = ['Close Scores'] + score
     return '\n'.join(text)
+
 
 def get_power_rankings(league, week=None):
     # power rankings requires an integer value, so this grabs the current week for that
     if not week:
         week = league.current_week
-    #Gets current week's power rankings
-    #Using 2 step dominance, as well as a combination of points scored and margin of victory.
-    #It's weighted 80/15/5 respectively
+    # Gets current week's power rankings
+    # Using 2 step dominance, as well as a combination of points scored and margin of victory.
+    # It's weighted 80/15/5 respectively
     power_rankings = league.power_rankings(week=week)
 
     score = ['%s - %s' % (i[0], i[1].team_name) for i in power_rankings
@@ -161,8 +217,9 @@ def get_power_rankings(league, week=None):
     text = ['Power Rankings'] + score
     return '\n'.join(text)
 
+
 def get_trophies(league, week=None):
-    #Gets trophies for highest score, lowest score, closest score, and biggest win
+    # Gets trophies for highest score, lowest score, closest score, and biggest win
     matchups = league.box_scores(week=week)
     low_score = 9999
     low_team_name = ''
@@ -189,7 +246,7 @@ def get_trophies(league, week=None):
             low_score = i.away_score
             low_team_name = i.away_team.team_name
         if i.away_score - i.home_score != 0 and \
-            abs(i.away_score - i.home_score) < closest_score:
+                abs(i.away_score - i.home_score) < closest_score:
             closest_score = abs(i.away_score - i.home_score)
             if i.away_score - i.home_score < 0:
                 close_winner = i.home_team.team_name
@@ -214,189 +271,29 @@ def get_trophies(league, week=None):
     text = ['Trophies of the week:'] + low_score_str + high_score_str + close_score_str + blowout_str
     return '\n'.join(text)
 
-def bot_main(function):
-    try:
-        bot_id = os.environ["BOT_ID"]
-    except KeyError:
-        bot_id = 1
-
-    try:
-        slack_webhook_url = os.environ["SLACK_WEBHOOK_URL"]
-    except KeyError:
-        slack_webhook_url = 1
-
-    try:
-        discord_webhook_url = os.environ["DISCORD_WEBHOOK_URL"]
-    except KeyError:
-        discord_webhook_url = 1
-
-    if (len(str(bot_id)) <= 1 and
-        len(str(slack_webhook_url)) <= 1 and
-        len(str(discord_webhook_url)) <= 1):
-        #Ensure that there's info for at least one messaging platform,
-        #use length of str in case of blank but non null env variable
-        raise Exception("No messaging platform info provided. Be sure one of BOT_ID,\
-                        SLACK_WEBHOOK_URL, or DISCORD_WEBHOOK_URL env variables are set")
-
-    league_id = os.environ["LEAGUE_ID"]
-
-    try:
-        year = int(os.environ["LEAGUE_YEAR"])
-    except KeyError:
-        year=2021
-
-    try:
-        swid = os.environ["SWID"]
-    except KeyError:
-        swid='{1}'
-
-    if swid.find("{",0) == -1:
-        swid = "{" + swid
-    if swid.find("}",-1) == -1:
-        swid = swid + "}"
-
-    try:
-        espn_s2 = os.environ["ESPN_S2"]
-    except KeyError:
-        espn_s2 = '1'
-
-    try:
-        espn_username = os.environ["ESPN_USERNAME"]
-    except KeyError:
-        espn_username = '1'
-
-    try:
-        espn_password = os.environ["ESPN_PASSWORD"]
-    except KeyError:
-        espn_password = '1'
-
-    try:
-        test = os.environ["TEST"]
-    except KeyError:
-        test = False
-
-    try:
-        top_half_scoring = os.environ["TOP_HALF_SCORING"]
-    except KeyError:
-        top_half_scoring = False
-
-    try:
-        random_phrase = os.environ["RANDOM_PHRASE"]
-    except KeyError:
-        random_phrase = False
-
-    # bot = GroupMeBot(bot_id)
-    # slack_bot = SlackBot(slack_webhook_url)
-    # discord_bot = DiscordBot(discord_webhook_url)
-
-    if swid == '{1}' and espn_s2 == '1': # and espn_username == '1' and espn_password == '1':
-        league = League(league_id=league_id, year=year)
-    else:
-        league = League(league_id=league_id, year=year, espn_s2=espn_s2, swid=swid)
-#    if espn_username and espn_password:
-#        league = League(league_id=league_id, year=year, username=espn_username, password=espn_password)
-
-    if test:
-        print(get_matchups(league,random_phrase))
-        print(get_scoreboard_short(league))
-        print(get_projected_scoreboard(league))
-        print(get_close_scores(league))
-        print(get_power_rankings(league))
-        print(get_scoreboard_short(league))
-        print(get_standings(league, top_half_scoring))
-        function="get_final"
-        discord_bot.send_message("Testing")
-
-    text = ''
-    if function=="get_matchups":
-        text = get_matchups(league,random_phrase)
-        text = text + "\n\n" + get_projected_scoreboard(league)
-    elif function=="get_scoreboard_short":
-        text = get_scoreboard_short(league)
-        text = text + "\n\n" + get_projected_scoreboard(league)
-    elif function=="get_projected_scoreboard":
-        text = get_projected_scoreboard(league)
-    elif function=="get_close_scores":
-        text = get_close_scores(league)
-    elif function=="get_power_rankings":
-        text = get_power_rankings(league)
-    elif function=="get_trophies":
-        text = get_trophies(league)
-    elif function=="get_standings":
-        text = get_standings(league, top_half_scoring)
-    elif function=="get_final":
-        # on Tuesday we need to get the scores of last week
-        week = league.current_week - 1
-        text = "Final " + get_scoreboard_short(league, week=week)
-        text = text + "\n\n" + get_trophies(league, week=week)
-    elif function=="init":
-        try:
-            text = os.environ["INIT_MSG"]
-        except KeyError:
-            #do nothing here, empty init message
-            pass
-    else:
-        text = "Something happened. HALP"
-
-    # if text != '' and not test:
-        # discord_bot.send_message(text)
-
-    if test:
-        #print "get_final" function
-        print(text)
-
 
 if __name__ == '__main__':
     try:
         ff_start_date = os.environ["START_DATE"]
     except KeyError:
-        ff_start_date='2021-09-09'
+        ff_start_date = '2021-09-09'
 
     try:
         ff_end_date = os.environ["END_DATE"]
     except KeyError:
-        ff_end_date='2022-01-04'
+        ff_end_date = '2022-01-04'
 
     try:
         my_timezone = os.environ["TIMEZONE"]
     except KeyError:
-        my_timezone='America/New_York'
-    token = os.getenv('TOKEN')
-    print(token)
-    client.run(token)
-    game_timezone='America/New_York'
-    # bot_main("init")
-    # sched = BlockingScheduler(job_defaults={'misfire_grace_time': 15*60})
+        my_timezone = 'America/New_York'
 
-    #power rankings:                     tuesday evening at 6:30pm local time.
-    #matchups:                           thursday evening at 7:30pm east coast time.
-    #close scores (within 15.99 points): monday evening at 6:30pm east coast time.
-    #trophies:                           tuesday morning at 7:30am local time.
-    #standings:                          wednesday morning at 7:30am local time.
-    #score update:                       friday, monday, and tuesday morning at 7:30am local time.
-    #score update:                       sunday at 4pm, 8pm east coast time.
+    client.run(os.getenv('TOKEN'))
 
-    # sched.add_job(bot_main, 'cron', ['get_power_rankings'], id='power_rankings',
-    #     day_of_week='tue', hour=18, minute=30, start_date=ff_start_date, end_date=ff_end_date,
-    #     timezone=my_timezone, replace_existing=True)
-    # sched.add_job(bot_main, 'cron', ['get_matchups'], id='matchups',
-    #     day_of_week='thu', hour=19, minute=30, start_date=ff_start_date, end_date=ff_end_date,
-    #     timezone=game_timezone, replace_existing=True)
-    # sched.add_job(bot_main, 'cron', ['get_close_scores'], id='close_scores',
-    #     day_of_week='mon', hour=18, minute=30, start_date=ff_start_date, end_date=ff_end_date,
-    #     timezone=game_timezone, replace_existing=True)
-    # sched.add_job(bot_main, 'cron', ['get_final'], id='final',
-    #     day_of_week='tue', hour=7, minute=30, start_date=ff_start_date, end_date=ff_end_date,
-    #     timezone=my_timezone, replace_existing=True)
-    # sched.add_job(bot_main, 'cron', ['get_standings'], id='standings',
-    #     day_of_week='wed', hour=7, minute=30, start_date=ff_start_date, end_date=ff_end_date,
-    #     timezone=my_timezone, replace_existing=True)
-    # sched.add_job(bot_main, 'cron', ['get_scoreboard_short'], id='scoreboard1',
-    #     day_of_week='fri,mon', hour=7, minute=30, start_date=ff_start_date, end_date=ff_end_date,
-    #     timezone=my_timezone, replace_existing=True)
-    # sched.add_job(bot_main, 'cron', ['get_scoreboard_short'], id='scoreboard2',
-    #     day_of_week='sun', hour='16,20', start_date=ff_start_date, end_date=ff_end_date,
-    #     timezone=game_timezone, replace_existing=True)
-    #
-    # print("Ready!")
-    # sched.start()
+    # power rankings:                     tuesday evening at 6:30pm local time.
+    # matchups:                           thursday evening at 7:30pm east coast time.
+    # close scores (within 15.99 points): monday evening at 6:30pm east coast time.
+    # trophies:                           tuesday morning at 7:30am local time.
+    # standings:                          wednesday morning at 7:30am local time.
+    # score update:                       friday, monday, and tuesday morning at 7:30am local time.
+    # score update:                       sunday at 4pm, 8pm east coast time.

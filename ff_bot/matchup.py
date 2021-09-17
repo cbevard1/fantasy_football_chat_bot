@@ -32,7 +32,8 @@ class Matchup(object):
         team_a_id = teams_ids[0]
         team_b_id = teams_ids[1]
 
-        time_remaining_footer = soup.find("div", attrs={"id": "teamMatchupChart"}).find("div", attrs={"class": "ft"})
+        matchup_chart = soup.find("div", attrs={"id": "teamMatchupChart"})
+        time_remaining_footer = matchup_chart.find("div", attrs={"class": "ft"})
         team1_time_remaining = int(time_remaining_footer.find("span", attrs={"class": "teamMinutesRemaining minType-remaining teamId-{}".format(team_a_id)}).text)
         team1_time_total = int(time_remaining_footer.find("span", attrs={"class": "teamMinutesRemaining minType-total teamId-{}".format(team_a_id)}).text)
         team2_time_remaining = int(time_remaining_footer.find("span", attrs={"class": "teamMinutesRemaining minType-remaining teamId-{}".format(team_b_id)}).text)

@@ -13,29 +13,28 @@
   "website": "https://github.com/dtcarls/fantasy_football_chat_bot/",
   "repository": "https://github.com/dtcarls/fantasy_football_chat_bot/",
   "env": {
-    "BOT_ID": {
-      "description": "GroupMe Bot ID",
+    "DISCORD_BOT_TOKEN": {
+      "description": "Discord TOKEN",
       "value": "1",
       "required": false
     },
-    "SLACK_WEBHOOK_URL": {
-      "description": "Slack Webhook URL",
+    "DISCORD_GUILD_ID": {
+      "description": "Discord Guild ID",
       "value": "1",
       "required": false
     },
-    "DISCORD_WEBHOOK_URL": {
-      "description": "Discord Webhook URL",
+    "DISCORD_CHANNEL_ID": {
+      "description": "Discord Channel",
       "value": "1",
       "required": false
     },
     "LEAGUE_ID": {
-      "description": "ESPN League ID",
+      "description": "League ID",
       "value": "1"
     },
     "LEAGUE_YEAR": {
-      "description": "ESPN League Year",
-      "value": "2021",
-      "required": false
+      "description": "League Year",
+      "value": "2021"
     },
     "TIMEZONE": {
       "description": "League timezone for sending messages",

@@ -6,28 +6,32 @@ from bs4 import BeautifulSoup
 from logger import Logger
 from team import Team
 from typing import List, Tuple
-from constants import FANTASY_NFL_ROOT_URL, HEADERS
+from constants import FANTASY_NFL_ROOT_URL, PRO_TEAM_NAMES
 from util import WebScraper
 from matchup import Matchup
 from tabulate import tabulate
+from datetime import datetime, timedelta
 
 
 # all the bot needs are box_scores, current_week, teams, power_rankings implementations for now
 class League:
     """Creates a League instance for public nfl league"""
 
-    def __init__(self, league_id: int, debug=False):
-        init_start_time = time.time()
+    def __init__(self, league_id: int, year: int, debug=False):
         self.logger = Logger(name='ffl', debug=debug)
+        self.year = year
         self.league_id = league_id
         self.league_size = 12
         self.teams = {}
         self.matchups = []
         self.current_week = None
-        asyncio.run(self._fetch_league())
-        print(time.time() - init_start_time)
 
-    async def _fetch_league(self):
+    async def fetch_league(self):
+        init_start_time = time.time()
+
+        self.teams = {}
+        self.matchups = []
+
         # from the league home page get the number of teams, the links for each team, and the current week
         league_url = '{}/league/{}'.format(FANTASY_NFL_ROOT_URL, self.league_id)
         async with ClientSession() as session:
@@ -50,8 +54,8 @@ class League:
                 self.current_week = int(current_week)
 
                 # get the matchup urls
-                matchup_tags = scoring_strip\
-                    .find("div", attrs={"class": "teamNav"})\
+                matchup_tags = scoring_strip \
+                    .find("div", attrs={"class": "teamNav"}) \
                     .find_all("a")
                 for matchup_url in matchup_tags:
                     # hrefs.append("{}{}".format(FANTASY_NFL_ROOT_URL, matchup_url['href']))
@@ -61,16 +65,21 @@ class League:
                 for row in rows:
                     url = '{}{}'.format(FANTASY_NFL_ROOT_URL, row.find("a", attrs={"class": re.compile(r'^teamName*')})['href'])
                     name = row.find("a", attrs={"class": re.compile(r'^teamName*')}).text.strip()
-                    standing = row.find("td", attrs={"class": re.compile(r'^teamRank*')}).text.strip()
-                    if(standing is ''):
+                    standing = int(row.find("td", attrs={"class": re.compile(r'^teamRank*')}).text.strip())
+
+                    record = row.find("td", attrs={"class": re.compile(r'^teamRecord*')}).text.strip().split('-')
+                    wins = record[0]
+                    losses = record[1]
+                    ties = record[2]
+
+                    if (standing is ''):
                         standing = 1
-                    fab = 0#float(row.find("td", attrs={"class": re.compile(r'^teamWaiverBudget*')}).text.strip()) TODO put back
+                    fab = float(row.find("td", attrs={"class": re.compile(r'^teamWaiverBudget*')}).text.strip())
                     pts_for = float(row.find("td", attrs={"class": re.compile(r'^teamPts teamPtsSort stat numeric$')}).text.strip())
                     pts_against = float(row.find("td", attrs={"class": re.compile(r'^teamPts teamPtsSort stat numeric last$')}).text.strip())
                     team_id = int(url.split('/')[-1])
-                    team = Team(team_id, url, name, standing, fab, pts_for, pts_against)
+                    team = Team(team_id, url, name, standing, fab, pts_for, pts_against, wins, losses, ties)
                     self.teams[team_id] = team
-                    # self.teams.append(team)
                 await WebScraper.fetch_team(self.teams.values())
                 await WebScraper.fetch_matchups(self.matchups, self.teams)
 
@@ -80,31 +89,91 @@ class League:
                     tasks.append(asyncio.create_task(WebScraper.fetch_players(team.roster)))
                 await asyncio.gather(*tasks)
 
-    def _get_positional_ratings(self, week: int):
-        params = {
-            'view': 'mPositionalRatings',
-            'scoringPeriodId': week,
-        }
-        data = self.espn_request.league_get(params=params)
-        ratings = data.get('positionAgainstOpponent', {}).get('positionalRatings', {})
+        print(time.time() - init_start_time)
 
-        positional_ratings = {}
-        for pos, rating in ratings.items():
-            teams_rating = {}
-            for team, data in rating['ratingsByOpponent'].items():
-                teams_rating[team] = data['rank']
-            positional_ratings[pos] = teams_rating
-        return positional_ratings
+    def box_scores(self, week: int = None):
+        '''Returns list of box score for a given week\n
+        Should only be used with most recent season'''
 
-    def refresh(self):
-        '''Gets latest league data. This can be used instead of creating a new League class each week'''
-        self.teams = []
-        self.matchups = []
-        asyncio.run(self._fetch_league())
+        header = ["Score", "Projection", "Team"]
+        rows = []
+        for matchup in self.matchups:
+            score1 = ["{:.2f}".format(matchup.opp1.score), "{:.2f}".format(matchup.opp1.projected_score), matchup.opp1.team.team_name]
+            score2 = ["{:.2f}".format(matchup.opp2.score), "{:.2f}".format(matchup.opp2.projected_score), matchup.opp2.team.team_name]
+            delim = ['----------', '------------', '-----------------------------------']
+            rows.append(score1)
+            rows.append(score2)
+            rows.append(delim)
+        return tabulate(rows, headers=header, tablefmt="simple")
 
-    def standings(self) -> List[Team]:
-        standings = sorted(self.teams, key=lambda x: x.final_standing if x.final_standing != 0 else x.standing, reverse=False)
-        return standings
+    def power_rankings(self):
+        '''Return power rankings for any week'''
+
+        power = {}
+        for team_id in self.teams.keys():
+            team = self.teams[team_id]
+            sorted_qbs = sorted(filter(lambda player: player.pos == 'QB', team.roster), key=lambda player: player.get_points_total())
+            sorted_rbs = sorted(filter(lambda player: player.pos == 'RB', team.roster), key=lambda player: player.get_points_total())
+            sorted_wrs = sorted(filter(lambda player: player.pos == 'WR', team.roster), key=lambda player: player.get_points_total())
+            sorted_tes = sorted(filter(lambda player: player.pos == 'TE', team.roster), key=lambda player: player.get_points_total())
+            sorted_dst = sorted(filter(lambda player: player.pos == 'DEF', team.roster), key=lambda player: player.get_points_total())
+            flex_options = []
+            if (len(sorted_tes) > 1):
+                flex_options.append(sorted_tes[1])
+            if (len(sorted_wrs) > 2):
+                flex_options.append(sorted_wrs[2])
+            if (len(sorted_rbs) > 2):
+                flex_options.append(sorted_rbs[2])
+            flex = sorted(flex_options, key=lambda player: player.get_points_total())
+
+            starting_lineup = [sorted_qbs[0], sorted_rbs[0], sorted_rbs[1], sorted_wrs[0], sorted_wrs[1], sorted_tes[0], flex, sorted_dst[0]]
+            team_power = sum(player.get_points_total() for player in starting_lineup)
+            power[team_id] = team_power
+        return power
+
+    async def recent_adds(self):
+        adds_url = "{}/league/{}/transactions?transactionType=add".format(FANTASY_NFL_ROOT_URL, self.league_id)
+        return await self.parse_transactions(adds_url, faab_on=True)
+
+    async def recent_drops(self):
+        drops_url = "{}/league/{}/transactions?transactionType=drop".format(FANTASY_NFL_ROOT_URL, self.league_id)
+        return await self.parse_transactions(drops_url, faab_on=False)
+
+    async def parse_transactions(self, url, faab_on=True):
+        async with ClientSession() as session:
+            async with session.get(url) as response:
+                page = await response.read()
+                soup = BeautifulSoup(page, 'lxml')
+
+                transactions_table = soup.find(id="leagueTransactions").find(lambda tag: tag.name == 'tbody')
+                rows = transactions_table.findAll(lambda tag: tag.name == 'tr')
+                table_rows = []
+                for row in rows:
+                    date_str = row.find("td", attrs={"class": re.compile(r'^transactionDate*')}).text.strip()
+                    date_str = "{}".format(date_str)
+                    date = datetime.strptime(date_str, '%b %d, %I:%M%p')
+                    if date.month < 9:
+                        date = date.replace(year=self.year + 1)
+                    else:
+                        date = date.replace(year=self.year)
+
+                    now = datetime.now()
+                    if (now - timedelta(hours=72) <= date <= now):
+                        team_pos = row.find("em").text.strip().split('-')[0].strip()
+                        team_tag = row.find("a", attrs={"class": re.compile(r'^teamName*')})
+                        team_name = team_tag.text.strip()
+                        team_id = int(team_tag['href'].split('/')[-1])
+                        player_name = row.find("a", attrs={"class": re.compile(r'^playerCard playerName playerNameFull*')}).text.strip()
+                        if (faab_on):
+                            faab = row.find("td", attrs={"class": re.compile(r'^transactionTo$')}).text
+                            faab = re.search("\((\d{1,}) pts\)", faab)
+                            points_spent = 0
+                            if (faab is not None):
+                                points_spent = int(faab.group(1))
+                            table_rows.append([points_spent, self.teams[team_id].faab, team_pos, player_name, team_name])
+                        else:
+                            table_rows.append([team_pos, player_name, team_name])
+                return table_rows
 
     def top_scorer(self) -> Team:
         most_pf = sorted(self.teams, key=lambda x: x.points_for, reverse=True)
@@ -140,128 +209,13 @@ class League:
                 return team
         return None
 
-    # def recent_activity(self, size: int = 25, msg_type: str = None) -> List[Activity]:
-    #     '''Returns a list of recent league activities (Add, Drop, Trade)'''
-    #     if self.year < 2019:
-    #         raise Exception('Cant use recent activity before 2019')
-    #
-    #     msg_types = [178,180,179,239,181,244]
-    #     if msg_type in ACTIVITY_MAP:
-    #         msg_types = [ACTIVITY_MAP[msg_type]]
-    #     params = {
-    #         'view': 'kona_league_communication'
-    #     }
-    #
-    #     filters = {"topics":{"filterType":{"value":["ACTIVITY_TRANSACTIONS"]},"limit":size,"limitPerMessageSet":{"value":25},"offset":0,"sortMessageDate":{"sortPriority":1,"sortAsc":False},"sortFor":{"sortPriority":2,"sortAsc":False},"filterIncludeMessageTypeIds":{"value":msg_types}}}
-    #     headers = {'x-fantasy-filter': json.dumps(filters)}
-    #     data = self.espn_request.league_get(extend='/communication/', params=params, headers=headers)
-    #     data = data['topics']
-    #     activity = [Activity(topic, self.player_map, self.get_team_data, self.player_info) for topic in data]
-    #
-    #     return activity
+    def abbr_player_name(self, player_name):
+        if player_name.title() in PRO_TEAM_NAMES:
+            abbr_name = player_name.title().split(' ')[-1]
+        else:
+            abbr_name = "{}. {}".format(player_name[0], player_name.split(' ')[-1])
 
-    # def scoreboard(self, week: int = None) -> List[Matchup]:
-    #     '''Returns list of matchups for a given week'''
-    #     if not week:
-    #         week = self.current_week
-    #
-    #     params = {
-    #         'view': 'mMatchupScore',
-    #     }
-    #     data = self.espn_request.league_get(params=params)
-    #
-    #     schedule = data['schedule']
-    #     matchups = [Matchup(matchup) for matchup in schedule if matchup['matchupPeriodId'] == week]
-    #
-    #     for team in self.teams:
-    #         for matchup in matchups:
-    #             if matchup.home_team == team.team_id:
-    #                 matchup.home_team = team
-    #             elif matchup.away_team == team.team_id:
-    #                 matchup.away_team = team
-    #
-    #     return matchups
+        return (abbr_name[:12].strip() + '.') if len(abbr_name) > 12 else abbr_name
 
-    def box_scores(self, week: int = None):
-        '''Returns list of box score for a given week\n
-        Should only be used with most recent season'''
-
-        header = ["Team", "Projections", "Scores"]
-        rows = []
-        for matchup in self.matchups:
-            # col1 = "{}\n{}".format(matchup.opp1.team.team_name, matchup.opp2.team.team_name)
-            # col2 = "{}\n{}".format(str(matchup.opp1.projected_score), str(matchup.opp2.projected_score))
-            # col3 = "{}\n{}".format(str(matchup.opp1.score), str(matchup.opp2.score))
-            # rows.append([col1, col2, col3])
-            score1 = [matchup.opp1.team.team_name, matchup.opp1.projected_score, matchup.opp1.score]
-            score2 = [matchup.opp2.team.team_name, matchup.opp2.projected_score, matchup.opp2.score]
-            delim = ['------------------------------', '------------------', '--------']
-            rows.append(score1)
-            rows.append(score2)
-            rows.append(delim)
-        return tabulate(rows, headers=header, tablefmt="simple")
-
-    # def power_rankings(self):
-    #     '''Return power rankings for any week'''
-    #
-    #     # calculate win for every week
-    #     win_matrix = []
-    #     teams_sorted = sorted(self.teams, key=lambda x: x.team_id,
-    #                           reverse=False)
-    #
-    #     for team in teams_sorted:
-    #         wins = [0] * len(teams_sorted)
-    #         for mov, opponent in zip(team.mov[:week], team.schedule[:week]):
-    #             opp = teams_sorted.index(opponent)
-    #             if mov > 0:
-    #                 wins[opp] += 1
-    #         win_matrix.append(wins)
-    #     dominance_matrix = two_step_dominance(win_matrix)
-    #     power_rank = power_points(dominance_matrix, teams_sorted, week)
-    #     return power_rank
-
-    # def free_agents(self, week: int = None, size: int = 50, position: str = None, position_id: int = None) -> List[Player]:
-    #     '''Returns a List of Free Agents for a Given Week\n
-    #     Should only be used with most recent season'''
-    #
-    #     if self.year < 2019:
-    #         raise Exception('Cant use free agents before 2019')
-    #     if not week:
-    #         week = self.current_week
-    #
-    #     slot_filter = []
-    #     if position and position in POSITION_MAP:
-    #         slot_filter = [POSITION_MAP[position]]
-    #     if position_id:
-    #         slot_filter.append(position_id)
-    #
-    #     params = {
-    #         'view': 'kona_player_info',
-    #         'scoringPeriodId': week,
-    #     }
-    #     filters = {"players": {"filterStatus": {"value": ["FREEAGENT", "WAIVERS"]}, "filterSlotIds": {"value": slot_filter}, "limit": size, "sortPercOwned": {"sortPriority": 1, "sortAsc": False}, "sortDraftRanks": {"sortPriority": 100, "sortAsc": True, "value": "STANDARD"}}}
-    #     headers = {'x-fantasy-filter': json.dumps(filters)}
-    #
-    #     data = self.espn_request.league_get(params=params, headers=headers)
-    #
-    #     players = data['players']
-    #     pro_schedule = self._get_pro_schedule(week)
-    #     positional_rankings = self._get_positional_ratings(week)
-    #
-    #     return [BoxPlayer(player, pro_schedule, positional_rankings, week, self.year) for player in players]
-
-    # def player_info(self, name: str = None, playerId: int = None):
-    #     ''' Returns Player class if name found '''
-    #
-    #     if name:
-    #         playerId = self.player_map.get(name)
-    #     if playerId is None or isinstance(playerId, str):
-    #         return None
-    #     params = {'view': 'kona_playercard'}
-    #     filters = {'players': {'filterIds': {'value': [playerId]}, 'filterStatsForTopScoringPeriodIds': {'value': 16, "additionalValue": ["00{}".format(self.year), "10{}".format(self.year)]}}}
-    #     headers = {'x-fantasy-filter': json.dumps(filters)}
-    #
-    #     data = self.espn_request.league_get(params=params, headers=headers)
-    #
-    #     if len(data['players']) > 0:
-    #         return Player(data['players'][0], self.year)
+    def abbr_team_name(self, team_name):
+        return (team_name[:12].strip() + '.') if len(team_name) > 12 else team_name

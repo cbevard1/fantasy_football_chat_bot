@@ -1,17 +1,12 @@
-import asyncio
 from aiohttp import ClientSession
 from bs4 import BeautifulSoup
-from player import Player
-import threading
-import concurrent.futures
-from multiprocessing import Pool
+from constants import HEADERS
 
-p = Pool(10)
 
 class WebScraper(object):
     @staticmethod
     async def fetch_players(players):
-        async with ClientSession() as session:
+        async with ClientSession(headers=HEADERS) as session:
             for player in players:
                 async with session.get(player.url) as response:
                     page = await response.read()

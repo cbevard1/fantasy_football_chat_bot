@@ -9,17 +9,17 @@ from player import Player
 class Team(object):
     """Teams are part of the league"""
 
-    def __init__(self, team_id, url, name, standing, fab, pts_for, pts_against):
+    def __init__(self, team_id, url, name, standing, faab, pts_for, pts_against, wins, losses, ties):
         self.id = team_id
         self.url = url
         self.points_for = pts_for
         self.points_against = pts_against
-        self.fab = fab
+        self.faab = faab
         self.team_name = name
         self.team_owner = None
-        self.wins = 0
-        self.losses = 0
-        self.ties = 0
+        self.wins = wins
+        self.losses = losses
+        self.ties = ties
         self.standing = standing
         self.roster = []
         self.schedule = []
@@ -107,8 +107,5 @@ class Team(object):
                 self.scores.append(score)
                 self.schedule.append(opponentId)
 
-    def get_player_name(self, playerId: int) -> str:
-        for player in self.roster:
-            if player.playerId == playerId:
-                return player.name
-        return ''
+    def abbr_team_name(self, num_chars):
+        return (self.team_name[:num_chars].strip() + '.') if len(self.team_name) > num_chars else self.team_name
