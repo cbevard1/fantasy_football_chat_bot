@@ -158,7 +158,7 @@ class League:
                         date = date.replace(year=self.year)
 
                     now = datetime.now()
-                    if (now - timedelta(hours=72) <= date <= now):
+                    if (now - timedelta(hours=24) <= date <= now):
                         team_pos = row.find("em").text.strip().split('-')[0].strip()
                         team_tag = row.find("a", attrs={"class": re.compile(r'^teamName*')})
                         team_name = team_tag.text.strip()
