@@ -1,5 +1,4 @@
 import re
-from tabulate import tabulate
 
 class Opponent(object):
     def __init__(self, team, score, projected_score, bench_score, bench_projected_score, min_remaining, min_total):
@@ -55,9 +54,3 @@ class Matchup(object):
 
         self.opp1 = Opponent(teams[team1_id], team1_pts, team1_proj_pts, team1_bench_pts, team1_bench_proj_pts, team1_time_remaining, team1_time_total)
         self.opp2 = Opponent(teams[team2_id], team2_pts, team2_proj_pts, team2_bench_pts, team2_bench_proj_pts, team2_time_remaining, team2_time_total)
-
-    def box_score(self):
-        header = ["Team", "Projected Score", "Score"]
-        score1 = [self.opp1.team.team_name.ljust(25), self.opp1.projected_score, self.opp1.score]
-        score2 = [self.opp2.team.team_name.ljust(25), self.opp2.projected_score, self.opp2.score]
-        return tabulate([[score1, score2], [score1, score2]], headers=header)

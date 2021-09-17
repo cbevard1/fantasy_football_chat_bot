@@ -19,6 +19,7 @@ async def get_record():
                 date_str = row.find("td", attrs={"class": re.compile(r'^transactionDate*')}).text.strip()
                 date_str = "{}".format(date_str)
                 date = datetime.strptime(date_str, '%b %d, %I:%M%p')
+                print(date)
                 if(date.month >= 9):
                     date = date.replace(year=2021)
                 else:

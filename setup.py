@@ -9,19 +9,19 @@ setup(
 
     version='0.3.0',
 
-    description='ESPN fantasy football Chat Bot',
+    description='Fantasy football Chat Bot',
 
-    author='Dean Carlson',
+    author='Chris Bevard',
 
-    author_email='deantcarlson@gmail.com',
+    author_email='cbevard1@gmail.com',
 
-    install_requires=['requests>=2.0.0,<3.0.0', 'espn_api>=0.17.0', 'apscheduler>3.0.0'],
+    install_requires=['tzlocal~=2.0', 'requests>=2.0.0,<3.0.0', 'apscheduler>3.0.0', 'beautifulsoup4~=4.9.3', 'aiohttp<3.8.0,>=3.6.0', 'cchardet', 'lxml', 'discord', 'aiocron', 'nest-asyncio'],
 
-    test_suite='nose.collector',
+    #test_suite='nose.collector',
 
-    tests_require=['nose', 'requests_mock'],
+    #tests_require=['nose', 'requests_mock'],
 
-    url='https://github.com/dtcarls/ff_bot',
+    url='https://github.com/cbevard1/fantasy_football_chat_bot',
 
     classifiers=[
         'Natural Language :: English',

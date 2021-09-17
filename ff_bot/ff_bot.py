@@ -6,14 +6,27 @@ from collections import defaultdict
 import nest_asyncio
 import aiocron
 import discord
-from PIL import Image, ImageDraw, ImageFont
 
 from constants import FANTASY_NFL_ROOT_URL
 from nfl_fantasy import League
 
 nest_asyncio.apply()  # allow nested asyncio event loops
-league = League(os.getenv('LEAGUE_ID'), os.getenv('LEAGUE_YEAR'))
+league = League(os.getenv('LEAGUE_ID'), int(os.getenv('LEAGUE_YEAR')))
 client = discord.Client()
+
+
+# @client.event
+# async def on_ready():
+#     print("bot started...")
+#     await get_channel().send("```{}```".format(league.power_rankings()))
+
+
+@client.event
+async def on_message(message):
+    print(message)
+    print(message.content)
+    print(message.mentions)
+    print('----------------')
 
 
 def get_channel():
@@ -26,12 +39,6 @@ def refresh_data():
     print('blocking shit...')
     asyncio.get_event_loop().run_until_complete(league.fetch_league())
     print('done')
-
-
-@client.event
-async def on_ready():
-    print("bot started...")
-    await get_channel().send("```{}```".format(league.power_rankings()))
 
 
 def get_random_phrase():
@@ -90,8 +97,8 @@ async def get_standings():
     await get_channel().send(embed=embed)
 
 
-@aiocron.crontab("30 8 * * *")
-async def get_recent_transactions():
+@client.event
+async def on_ready():
     refresh_data()
 
     recent_drops = await league.recent_drops()
@@ -164,26 +171,6 @@ def all_played(lineup):
         if i.slot_position != 'BE' and i.slot_position != 'IR' and i.game_played < 100:
             return False
     return True
-
-
-def get_matchups(league, random_phrase, week=None):
-    # Gets current week's Matchups
-    img = Image.new('RGB', (350, 350), color=(255, 255, 255))
-
-    fnt = ImageFont.truetype('/Library/Fonts/Arial.ttf', 15)
-    d = ImageDraw.Draw(img)
-    d.text((10, 10), league.box_scores(), font=fnt, fill=(0, 0, 0))
-
-    img.save('pil_text_font.png')
-
-    # score = ['%s(%s-%s) vs %s(%s-%s)' % (i.home_team.team_name, i.home_team.wins, i.home_team.losses,
-    #          i.away_team.team_name, i.away_team.wins, i.away_team.losses) for i in matchups
-    #          if i.away_team]
-    #
-    # text = ['Matchups'] + score
-    # if random_phrase:
-    #     text = text + get_random_phrase()
-    # return '\n'.join(text)
 
 
 def get_close_scores(league, week=None):

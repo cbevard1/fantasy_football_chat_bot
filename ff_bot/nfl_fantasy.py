@@ -3,13 +3,14 @@ from aiohttp import ClientSession
 import time
 import asyncio
 from bs4 import BeautifulSoup
+from pytz import timezone
+
 from logger import Logger
 from team import Team
-from typing import List, Tuple
+from typing import Tuple
 from constants import FANTASY_NFL_ROOT_URL, PRO_TEAM_NAMES
 from util import WebScraper
 from matchup import Matchup
-from tabulate import tabulate
 from datetime import datetime, timedelta
 
 
@@ -72,7 +73,7 @@ class League:
                     losses = record[1]
                     ties = record[2]
 
-                    if (standing is ''):
+                    if not standing:
                         standing = 1
                     fab = float(row.find("td", attrs={"class": re.compile(r'^teamWaiverBudget*')}).text.strip())
                     pts_for = float(row.find("td", attrs={"class": re.compile(r'^teamPts teamPtsSort stat numeric$')}).text.strip())
@@ -90,21 +91,6 @@ class League:
                 await asyncio.gather(*tasks)
 
         print(time.time() - init_start_time)
-
-    def box_scores(self, week: int = None):
-        '''Returns list of box score for a given week\n
-        Should only be used with most recent season'''
-
-        header = ["Score", "Projection", "Team"]
-        rows = []
-        for matchup in self.matchups:
-            score1 = ["{:.2f}".format(matchup.opp1.score), "{:.2f}".format(matchup.opp1.projected_score), matchup.opp1.team.team_name]
-            score2 = ["{:.2f}".format(matchup.opp2.score), "{:.2f}".format(matchup.opp2.projected_score), matchup.opp2.team.team_name]
-            delim = ['----------', '------------', '-----------------------------------']
-            rows.append(score1)
-            rows.append(score2)
-            rows.append(delim)
-        return tabulate(rows, headers=header, tablefmt="simple")
 
     def power_rankings(self):
         '''Return power rankings for any week'''
@@ -151,13 +137,13 @@ class League:
                 for row in rows:
                     date_str = row.find("td", attrs={"class": re.compile(r'^transactionDate*')}).text.strip()
                     date_str = "{}".format(date_str)
-                    date = datetime.strptime(date_str, '%b %d, %I:%M%p')
+                    date = datetime.strptime(date_str, '%b %d, %I:%M%p').replace(tzinfo=timezone('US/Pacific')) # NFL.com dates are in westcoast time
                     if date.month < 9:
                         date = date.replace(year=self.year + 1)
                     else:
                         date = date.replace(year=self.year)
 
-                    now = datetime.now()
+                    now = datetime.now().replace(tzinfo=timezone('US/Eastern'))
                     if (now - timedelta(hours=24) <= date <= now):
                         team_pos = row.find("em").text.strip().split('-')[0].strip()
                         team_tag = row.find("a", attrs={"class": re.compile(r'^teamName*')})
