@@ -15,10 +15,10 @@ league = League(os.getenv('LEAGUE_ID'), int(os.getenv('LEAGUE_YEAR')))
 client = discord.Client()
 
 
-# @client.event
-# async def on_ready():
-#     print("bot started...")
-#     await get_channel().send("```{}```".format(league.power_rankings()))
+@client.event
+async def on_ready():
+    print("bot started...")
+    await get_channel().send("```{}```".format(league.power_rankings()))
 
 
 @client.event
@@ -97,8 +97,8 @@ async def get_standings():
     await get_channel().send(embed=embed)
 
 
-@client.event
-async def on_ready():
+@aiocron.crontab("30 8 * * *")
+async def get_recent_transactions():
     refresh_data()
 
     recent_drops = await league.recent_drops()
