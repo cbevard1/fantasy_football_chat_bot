@@ -87,7 +87,7 @@ async def get_projected_scoreboard():
 async def get_standings():
     refresh_data()
 
-    standings = sorted(league.teams.values(), key=lambda team: team.standing, reverse=False)
+    standings = sorted(league.teams.values(), key=lambda t: t.standing, reverse=False)
     url = "{}/league/{}".format(FANTASY_NFL_ROOT_URL, league.league_id)
     embed = discord.Embed(title="League Standings", url=url)
     embed.color = 0x9b9b9b

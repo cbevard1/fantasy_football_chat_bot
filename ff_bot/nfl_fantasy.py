@@ -11,6 +11,7 @@ from typing import Tuple
 from constants import FANTASY_NFL_ROOT_URL, PRO_TEAM_NAMES
 from util import WebScraper
 from matchup import Matchup
+from playoffs import PlayoffPredictor, SlimTeam
 from datetime import datetime, timedelta
 
 
@@ -69,9 +70,9 @@ class League:
                     standing = int(row.find("td", attrs={"class": re.compile(r'^teamRank*')}).text.strip())
 
                     record = row.find("td", attrs={"class": re.compile(r'^teamRecord*')}).text.strip().split('-')
-                    wins = record[0]
-                    losses = record[1]
-                    ties = record[2]
+                    wins = int(record[0])
+                    losses = int(record[1])
+                    ties = int(record[2])
 
                     if not standing:
                         standing = 1
@@ -161,6 +162,13 @@ class League:
                             table_rows.append([team_pos, player_name, team_name])
                 return table_rows
 
+    def playoff_picture(self):
+        slim_teams = {}
+        for team_id in self.teams.keys():
+            slim_teams[team_id] = SlimTeam(self.teams[team_id])
+        predictor = PlayoffPredictor(slim_teams)
+        predictor.simulate_outcomesv2()
+
     def top_scorer(self) -> Team:
         most_pf = sorted(self.teams, key=lambda x: x.points_for, reverse=True)
         return most_pf[0]
@@ -205,3 +213,6 @@ class League:
 
     def abbr_team_name(self, team_name):
         return (team_name[:12].strip() + '.') if len(team_name) > 12 else team_name
+
+    def get_matchups(week: int):
+        print('hi')
