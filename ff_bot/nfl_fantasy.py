@@ -67,7 +67,7 @@ class League:
                 for row in rows:
                     url = '{}{}'.format(FANTASY_NFL_ROOT_URL, row.find("a", attrs={"class": re.compile(r'^teamName*')})['href'])
                     name = row.find("a", attrs={"class": re.compile(r'^teamName*')}).text.strip()
-                    standing = int(row.find("td", attrs={"class": re.compile(r'^teamRank*')}).text.strip())
+                    standing = int(row.find("span", attrs={"class": re.compile(r'^teamRank teamId-\d{1,}$')}).text.strip())
 
                     record = row.find("td", attrs={"class": re.compile(r'^teamRecord*')}).text.strip().split('-')
                     wins = int(record[0])
@@ -167,7 +167,9 @@ class League:
         for team_id in self.teams.keys():
             slim_teams[team_id] = SlimTeam(self.teams[team_id])
         predictor = PlayoffPredictor(slim_teams)
-        predictor.simulate_outcomesv2()
+        start_time = time.time()
+        predictor.simulate_outcomes()
+        print(time.time() - start_time)
 
     def top_scorer(self) -> Team:
         most_pf = sorted(self.teams, key=lambda x: x.points_for, reverse=True)

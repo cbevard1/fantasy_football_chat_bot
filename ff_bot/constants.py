@@ -1,3 +1,5 @@
+import os
+
 FANTASY_NFL_ROOT_URL = 'https://fantasy.nfl.com'
 HEADERS = {"User-agent": 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Safari/605.1.15'}
 
@@ -108,6 +110,7 @@ PRO_TEAM_NAMES = ['Arizona Cardinals',
                   'Tennessee Titans',
                   'Washington Football Team']
 
+
 '''Nested dictionary that can be used to lookup games schedule. Index by team_id then week'''
 SCHEDULE = {
     1: {1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10, 10: 11, 11: 12, 12: 2, 13: 3, 14: 4},
@@ -122,4 +125,19 @@ SCHEDULE = {
     10: {1: 5, 2: 7, 3: 9, 4: 11, 5: 2, 6: 4, 7: 6, 8: 8, 9: 1, 10: 12, 11: 3, 12: 5, 13: 7, 14: 9},
     11: {1: 4, 2: 6, 3: 8, 4: 10, 5: 12, 6: 3, 7: 5, 8: 7, 9: 9, 10: 1, 11: 2, 12: 4, 13: 6, 14: 8},
     12: {1: 3, 2: 5, 3: 7, 4: 9, 5: 11, 6: 2, 7: 4, 8: 6, 9: 8, 10: 10, 11: 1, 12: 3, 13: 5, 14: 7}
+}
+'''Map team ids to the manager's discord id for future features like mentioning teams in messages'''
+DISCORD_ID_MAP = {
+    1: None if os.getenv('TEAM1_DISCORD_ID') is None or int(os.getenv('TEAM1_DISCORD_ID')) == 0 else int(os.getenv('TEAM1_DISCORD_ID')),
+    2: None if os.getenv('TEAM2_DISCORD_ID') is None or int(os.getenv('TEAM2_DISCORD_ID')) == 0 else int(os.getenv('TEAM2_DISCORD_ID')),
+    3: None if os.getenv('TEAM3_DISCORD_ID') is None or int(os.getenv('TEAM3_DISCORD_ID')) == 0 else int(os.getenv('TEAM3_DISCORD_ID')),
+    4: None if os.getenv('TEAM4_DISCORD_ID') is None or int(os.getenv('TEAM4_DISCORD_ID')) == 0 else int(os.getenv('TEAM4_DISCORD_ID')),
+    5: None if os.getenv('TEAM5_DISCORD_ID') is None or int(os.getenv('TEAM5_DISCORD_ID')) == 0 else int(os.getenv('TEAM5_DISCORD_ID')),
+    6: None if os.getenv('TEAM6_DISCORD_ID') is None or int(os.getenv('TEAM6_DISCORD_ID')) == 0 else int(os.getenv('TEAM6_DISCORD_ID')),
+    7: None if os.getenv('TEAM7_DISCORD_ID') is None or int(os.getenv('TEAM7_DISCORD_ID')) == 0 else int(os.getenv('TEAM7_DISCORD_ID')),
+    8: None if os.getenv('TEAM8_DISCORD_ID') is None or int(os.getenv('TEAM8_DISCORD_ID')) == 0 else int(os.getenv('TEAM8_DISCORD_ID')),
+    9: None if os.getenv('TEAM9_DISCORD_ID') is None or int(os.getenv('TEAM9_DISCORD_ID')) == 0 else int(os.getenv('TEAM9_DISCORD_ID')),
+    10: None if os.getenv('TEAM10_DISCORD_ID') is None or int(os.getenv('TEAM10_DISCORD_ID')) == 0 else int(os.getenv('TEAM10_DISCORD_ID')),
+    11: None if os.getenv('TEAM11_DISCORD_ID') is None or int(os.getenv('TEAM11_DISCORD_ID')) == 0 else int(os.getenv('TEAM11_DISCORD_ID')),
+    12: None if os.getenv('TEAM12_DISCORD_ID') is None or int(os.getenv('TEAM12_DISCORD_ID')) == 0 else int(os.getenv('TEAM12_DISCORD_ID'))
 }

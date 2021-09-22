@@ -6,19 +6,25 @@ from collections import defaultdict
 import nest_asyncio
 import aiocron
 import discord
+import pytz
 
-from constants import FANTASY_NFL_ROOT_URL
+from constants import FANTASY_NFL_ROOT_URL, DISCORD_ID_MAP
 from nfl_fantasy import League
 
 nest_asyncio.apply()  # allow nested asyncio event loops
 league = League(os.getenv('LEAGUE_ID'), int(os.getenv('LEAGUE_YEAR')))
 client = discord.Client()
+intents = discord.Intents.default()
+intents.members = True
+client = discord.Client(intents=intents)
+tz = None if os.getenv('TZ') is None else pytz.timezone(os.getenv('TZ'))
 
 
 @client.event
 async def on_ready():
     print("bot started...")
-    await get_channel().send("```{}```".format(league.power_rankings()))
+    me = get_member_by_tid(1)
+    await me.send("The bot has been redeployed {}...".format(me.mention))
 
 
 @client.event
@@ -29,10 +35,17 @@ async def on_message(message):
     print('----------------')
 
 
+def get_guild():
+    return client.get_guild(id=int(os.getenv('GUILD_ID')))
+
+
 def get_channel():
-    guild = client.get_guild(id=int(os.getenv('GUILD_ID')))
-    channel = guild.get_channel(int(os.getenv('CHANNEL_ID')))
-    return channel
+    return get_guild().get_channel(int(os.getenv('CHANNEL_ID')))
+
+
+def get_member_by_tid(team_id):
+    discord_id = DISCORD_ID_MAP[team_id]
+    return None if discord_id is None else get_guild().get_member(discord_id)
 
 
 def refresh_data():
@@ -67,7 +80,7 @@ def get_scoreboard_short(league, week=None):
     return '\n'.join(text)
 
 
-@aiocron.crontab("30 16 * * 0")
+@aiocron.crontab("30 16 * * 0", tz=tz)
 async def get_projected_scoreboard():
     refresh_data()
 
@@ -83,7 +96,7 @@ async def get_projected_scoreboard():
     await get_channel().send(embed=embed)
 
 
-@aiocron.crontab("30 8 * * 2")
+@aiocron.crontab("30 8 * * 2", tz=tz)
 async def get_standings():
     refresh_data()
 
@@ -97,11 +110,14 @@ async def get_standings():
     await get_channel().send(embed=embed)
 
 
-@aiocron.crontab("30 8 * * *")
+@aiocron.crontab("15 8 * * *", tz=tz)
 async def get_recent_transactions():
     refresh_data()
 
     recent_drops = await league.recent_drops()
+    recent_adds = await league.recent_adds()
+
+    # message formatted for dropped players
     if len(recent_drops) > 0:
         groups = defaultdict(list)
         for drop in recent_drops:
@@ -119,7 +135,7 @@ async def get_recent_transactions():
             embed.add_field(name='**{}**'.format(group), value=value_str, inline=False)
         await get_channel().send(embed=embed)
 
-    recent_adds = await league.recent_adds()
+    # message formatted for added players
     if len(recent_adds) > 0:
         groups = defaultdict(list)
         for add in recent_adds:
@@ -138,6 +154,15 @@ async def get_recent_transactions():
             value_str = '\n'.join(entries)
             embed.add_field(name='**{} | FAAB: ${}**'.format(group, faab_left), value=value_str, inline=False)
         await get_channel().send(embed=embed)
+
+    if len(recent_adds) > 0 or len(recent_drops) > 0:
+        await get_channel().send(":arrow_up: **Roster Moves (last 24 hours)** :arrow_up:")
+    if len(recent_adds) > 0 and len(recent_drops) > 0:
+        await get_channel().send('https://memegenerator.net/img/instances/61815497/youre-fucking-out-im-fucking-in.jpg')
+    elif len(recent_drops) > 0:
+        await get_channel().send('https://y.yarn.co/077541c3-6016-43d6-9ea0-30e496f137e4_text.gif')
+    elif len(recent_adds) > 0:
+        await get_channel().send('https://imgur.com/2be9Myw')
 
 
 def top_half_wins(league, top_half_totals, week):
