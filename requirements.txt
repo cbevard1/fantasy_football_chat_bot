@@ -7,9 +7,10 @@ wheel~=0.34.2
 tornado~=6.1
 setuptools~=57.4.0
 beautifulsoup4~=4.9.3
-aiohttp
+aiohttp~=3.7.4.post0
 cchardet
-lxml
-discord
-aiocron
+lxml~=4.6.3
+discord~=1.7.3
+aiocron~=1.7
 nest-asyncio
+pytz~=2019.3

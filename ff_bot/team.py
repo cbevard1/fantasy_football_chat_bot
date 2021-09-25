@@ -21,7 +21,7 @@ class Team(object):
         self.losses = losses
         self.ties = ties
         self.standing = standing
-        self.roster = []
+        self.roster = set()
         self.schedule = []
         self.streak_len = None
         self.streak_type = None
@@ -47,7 +47,6 @@ class Team(object):
         defense_table = roster_table.find("div", attrs={"id": "tableWrap-DT"}).find("table").find("tbody")
         rows = offense_table.findAll("tr", attrs={"class": re.compile(r"^player-\d")}) + defense_table.findAll("tr", attrs={"class": re.compile(r"^player-\d")})
 
-        # tasks = []
         for row in rows:
             try:
                 txt = row.text
@@ -55,7 +54,7 @@ class Team(object):
                     continue  # for an empty roster spot just continue to the next row
                 else:
                     player_benched = False
-                    if row.find("td", attrs={"class": "teamPosition first"}).text == "BN":
+                    if row.find("td", attrs={"class": "teamPosition first"}).text in ["BN", "RES"]:
                         player_benched = True
                     # there might be an error here with a missing '/' between the root url and the player card url
                     player_tag = row.find("a", attrs={"class": re.compile("^playerCard*")})
@@ -70,7 +69,7 @@ class Team(object):
                     else:
                         team = "Free Agent"
                     player = Player(player_url, player_name, team, position, player_benched)
-                    self.roster.append(player)
+                    self.roster.add(player)
             except TypeError:
                 traceback.print_exc(file=sys.stdout)
                 continue
@@ -81,7 +80,7 @@ class Team(object):
         roster = data['entries']
 
         for player in roster:
-            self.roster.append(Player(player, year))
+            self.roster.add(Player(player, year))
 
     def _fetch_schedule(self, data):
         '''Fetch schedule and scores for team'''

@@ -4,8 +4,14 @@ import re
 from aiohttp import ClientSession
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
-from constants import SCHEDULE
+from constants import SCHEDULE, INACTIVE_INJURY_DESIGNATIONS
 from nfl_fantasy import League
+import json
+from collections import defaultdict
+import pytz
+import os
+
+tz = pytz.timezone('US/Eastern') if os.getenv('TZ') is None else pytz.timezone(os.getenv('TZ'))
 
 
 async def get_record():
@@ -41,12 +47,45 @@ async def get_record():
     #                 print("{} {} {} {} {}".format(date, team_name, player_name, points_spent, team_id))
 
 
+async def lock_test(league):
+    a = await league.recent_adds()
+    d = await league.recent_drops()
+    print(a)
+    print(d)
+    await league.fetch_league()
+    a = await league.recent_adds()
+    d = await league.recent_drops()
+    print(a)
+    print(d)
+
+
 if __name__ == '__main__':
-    # asyncio.run(get_record())
-    league = League(1, 2021, debug=True)
-    asyncio.get_event_loop().run_until_complete(league.fetch_league())
-    for team in league.teams.values():
-        for player in team.roster:
-            print("{} {}".format(player.name, player.injured_status))
-    # league.playoff_picture()
+    # asyncio.run(lock_test())
+    league = League(614261, 2021, debug=True)
+
+    data_json = json.load(open('./ff_bot/week3_schedule.json'))
+    games = data_json['events']
+    games[0]['date'] = '2021-09-25T17:29Z'
+
+    # parse the game time and teams playing from the json document
+    # create a dict of the games where game datetime is the key, and value is a list of teams playing at that time
+    game_times = defaultdict(list)
+    for game in games:
+        # EXAMPLE: parse 'CAR @ HOU' -> ['CAR', 'HOU']
+        teams = [x.strip() for x in game['shortName'].split('@')]
+        game_time = pytz.utc.localize(datetime.strptime(game['date'], '%Y-%m-%dT%H:%MZ'))
+        game_times[game_time].extend(teams)
+
+    # see which games are recently started
+    teams_just_started_playing = []
+    for game_time in game_times.keys():
+        if 5 > (tz.localize(datetime.now()) - game_time).total_seconds() / 60 > 0:
+            teams_just_started_playing.extend(game_times[game_time])
+
+    managers_screwups = defaultdict(list)
+    for team_id in league.teams.keys():
+        for player in league.teams[team_id].roster:
+            if player.pro_team in teams_just_started_playing and player.injured_status in INACTIVE_INJURY_DESIGNATIONS and not player.benched:
+                managers_screwups[team_id].append(player)
+    print(managers_screwups)
 

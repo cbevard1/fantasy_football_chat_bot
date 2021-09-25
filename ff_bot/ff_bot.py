@@ -3,10 +3,14 @@ import os
 import random
 from collections import defaultdict
 
+from datetime import datetime
+from constants import INACTIVE_INJURY_DESIGNATIONS
+import pytz
 import nest_asyncio
 import aiocron
 import discord
-import pytz
+from urllib.request import urlopen
+import json
 
 from constants import FANTASY_NFL_ROOT_URL, DISCORD_ID_MAP
 from nfl_fantasy import League
@@ -17,7 +21,7 @@ client = discord.Client()
 intents = discord.Intents.default()
 intents.members = True
 client = discord.Client(intents=intents)
-tz = None if os.getenv('TZ') is None else pytz.timezone(os.getenv('TZ'))
+tz = pytz.timezone('US/Eastern') if os.getenv('TZ') is None else pytz.timezone(os.getenv('TZ'))
 
 
 @client.event
@@ -26,13 +30,12 @@ async def on_ready():
     me = get_member_by_tid(1)
     await me.send("The bot has been redeployed {}...".format(me.mention))
 
-
-@client.event
-async def on_message(message):
-    print(message)
-    print(message.content)
-    print(message.mentions)
-    print('----------------')
+# @client.event
+# async def on_message(message):
+    # print(message)
+    # print(message.content)
+    # print(message.mentions)
+    # print('----------------')
 
 
 def get_guild():
@@ -46,12 +49,6 @@ def get_channel():
 def get_member_by_tid(team_id):
     discord_id = DISCORD_ID_MAP[team_id]
     return None if discord_id is None else get_guild().get_member(discord_id)
-
-
-def refresh_data():
-    print('blocking shit...')
-    asyncio.get_event_loop().run_until_complete(league.fetch_league())
-    print('done')
 
 
 def get_random_phrase():
@@ -80,10 +77,13 @@ def get_scoreboard_short(league, week=None):
     return '\n'.join(text)
 
 
+@aiocron.crontab("4,9,14,19,24,29,34,39,44,49,54,59 * * * *", tz=tz)
+async def fetch_data():
+    asyncio.get_event_loop().run_until_complete(league.fetch_league())
+
+
 @aiocron.crontab("30 16 * * 0", tz=tz)
 async def get_projected_scoreboard():
-    refresh_data()
-
     matchups = league.matchups
     embed = discord.Embed(title="Scoreboard Update")
     embed.set_image(url='https://media0.giphy.com/media/3o6Zt7gUslBylMFTkQ/200.gif')
@@ -98,8 +98,6 @@ async def get_projected_scoreboard():
 
 @aiocron.crontab("30 8 * * 2", tz=tz)
 async def get_standings():
-    refresh_data()
-
     standings = sorted(league.teams.values(), key=lambda t: t.standing, reverse=False)
     url = "{}/league/{}".format(FANTASY_NFL_ROOT_URL, league.league_id)
     embed = discord.Embed(title="League Standings", url=url)
@@ -110,10 +108,8 @@ async def get_standings():
     await get_channel().send(embed=embed)
 
 
-@aiocron.crontab("15 8 * * *", tz=tz)
+@aiocron.crontab("30 8 * * *", tz=tz)
 async def get_recent_transactions():
-    refresh_data()
-
     recent_drops = await league.recent_drops()
     recent_adds = await league.recent_adds()
 
@@ -165,54 +161,71 @@ async def get_recent_transactions():
         await get_channel().send('https://imgur.com/2be9Myw')
 
 
-def top_half_wins(league, top_half_totals, week):
-    box_scores = league.box_scores(week=week)
-
-    scores = [(i.home_score, i.home_team.team_name) for i in box_scores] + \
-             [(i.away_score, i.away_team.team_name) for i in box_scores if i.away_team]
-
-    scores = sorted(scores, key=lambda tup: tup[0], reverse=True)
-
-    for i in range(0, len(scores) // 2):
-        points, team_name = scores[i]
-        top_half_totals[team_name] += 1
-
-    return top_half_totals
+@aiocron.crontab("21 20 * * 4", tz=tz) # 8:20pm, Thursday
+async def blast_thursday_night_inactives():
+    blast_injured_starters()
 
 
-def get_projected_total(lineup):
-    total_projected = 0
-    for i in lineup:
-        if i.slot_position != 'BE' and i.slot_position != 'IR':
-            if i.points != 0 or i.game_played > 0:
-                total_projected += i.points
-            else:
-                total_projected += i.projected_points
-    return total_projected
+@aiocron.crontab("31 9 * * 0", tz=tz) # 9:30am, Sunday (London games)
+async def blast_sunday_morning_inactives():
+    blast_injured_starters()
 
 
-def all_played(lineup):
-    for i in lineup:
-        if i.slot_position != 'BE' and i.slot_position != 'IR' and i.game_played < 100:
-            return False
-    return True
+@aiocron.crontab("01 13 * * 0", tz=tz) # 1pm, Sunday
+async def blast_sunday_1pm_inactives():
+    blast_injured_starters()
 
 
-def get_close_scores(league, week=None):
-    # Gets current closest scores (15.999 points or closer)
-    matchups = league.box_scores(week=week)
-    score = []
+@aiocron.crontab("06,26 16 * * 0", tz=tz) # 4:05pm & 4:25pm, Sunday
+async def blast_sunday_4pm_inactives():
+    blast_injured_starters()
 
-    for i in matchups:
-        if i.away_team:
-            diffScore = i.away_score - i.home_score
-            if (-16 < diffScore <= 0 and not all_played(i.away_lineup)) or (0 <= diffScore < 16 and not all_played(i.home_lineup)):
-                score += ['%s %.2f - %.2f %s' % (i.home_team.team_abbrev, i.home_score,
-                                                 i.away_score, i.away_team.team_abbrev)]
-    if not score:
-        return ('')
-    text = ['Close Scores'] + score
-    return '\n'.join(text)
+
+@aiocron.crontab("21 20 * * 0", tz=tz) # 8:20pm, Sunday
+async def blast_sunday_4pm_inactives():
+    blast_injured_starters()
+
+
+@aiocron.crontab("16 20 * * 1", tz=tz) # 8:15pm, Monday
+async def blast_sunday_4pm_inactives():
+    blast_injured_starters()
+
+
+async def blast_injured_starters():
+    schedule_url = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?week={}'.format(league.current_week)
+    response = urlopen(schedule_url)
+    data_json = json.loads(response.read())
+    games = data_json['events']
+
+    # parse the game time and teams playing from the json document
+    # create a dict of the games where game datetime is the key, and value is a list of teams playing at that time
+    game_times = defaultdict(list)
+    for game in games:
+        # EXAMPLE: parse 'CAR @ HOU' -> ['CAR', 'HOU']
+        teams = [x.strip() for x in game['shortName'].split('@')]
+        game_time = pytz.utc.localize(datetime.strptime(game['date'], '%Y-%m-%dT%H:%MZ'))
+        game_times[game_time].extend(teams)
+
+    # see which games are recently started
+    teams_just_started_playing = []
+    for game_time in game_times.keys():
+        if 5 > (tz.localize(datetime.now()) - game_time).total_seconds() / 60 > 0:
+            teams_just_started_playing.extend(game_times[game_time])
+
+    managers_screwups = defaultdict(list)
+    for team_id in league.teams.keys():
+        for player in league.teams[team_id].roster:
+            if player.pro_team in teams_just_started_playing and player.injured_status in INACTIVE_INJURY_DESIGNATIONS and not player.benched:
+                managers_screwups[team_id].append(player)
+
+    if len(managers_screwups) > 0:
+        embed = discord.Embed(title="You started an inactive player...")
+        for manager in managers_screwups.keys():
+            values = [player.name for player in managers_screwups[manager]]
+            value_str = '\n'.join(values)
+            embed.add_field(name="**{}**".format(league.teams[manager].team_name), value=value_str, inline=False)
+        embed.set_image(url='https://thumbs.gfycat.com/MellowTediousCassowary-size_restricted.gif')
+        await get_channel().send(embed=embed)
 
 
 def get_power_rankings(league, week=None):
@@ -229,59 +242,6 @@ def get_power_rankings(league, week=None):
     text = ['Power Rankings'] + score
     return '\n'.join(text)
 
-
-def get_trophies(league, week=None):
-    # Gets trophies for highest score, lowest score, closest score, and biggest win
-    matchups = league.box_scores(week=week)
-    low_score = 9999
-    low_team_name = ''
-    high_score = -1
-    high_team_name = ''
-    closest_score = 9999
-    close_winner = ''
-    close_loser = ''
-    biggest_blowout = -1
-    blown_out_team_name = ''
-    ownerer_team_name = ''
-
-    for i in matchups:
-        if i.home_score > high_score:
-            high_score = i.home_score
-            high_team_name = i.home_team.team_name
-        if i.home_score < low_score:
-            low_score = i.home_score
-            low_team_name = i.home_team.team_name
-        if i.away_score > high_score:
-            high_score = i.away_score
-            high_team_name = i.away_team.team_name
-        if i.away_score < low_score:
-            low_score = i.away_score
-            low_team_name = i.away_team.team_name
-        if i.away_score - i.home_score != 0 and \
-                abs(i.away_score - i.home_score) < closest_score:
-            closest_score = abs(i.away_score - i.home_score)
-            if i.away_score - i.home_score < 0:
-                close_winner = i.home_team.team_name
-                close_loser = i.away_team.team_name
-            else:
-                close_winner = i.away_team.team_name
-                close_loser = i.home_team.team_name
-        if abs(i.away_score - i.home_score) > biggest_blowout:
-            biggest_blowout = abs(i.away_score - i.home_score)
-            if i.away_score - i.home_score < 0:
-                ownerer_team_name = i.home_team.team_name
-                blown_out_team_name = i.away_team.team_name
-            else:
-                ownerer_team_name = i.away_team.team_name
-                blown_out_team_name = i.home_team.team_name
-
-    low_score_str = ['Low score: %s with %.2f points' % (low_team_name, low_score)]
-    high_score_str = ['High score: %s with %.2f points' % (high_team_name, high_score)]
-    close_score_str = ['%s barely beat %s by a margin of %.2f' % (close_winner, close_loser, closest_score)]
-    blowout_str = ['%s blown out by %s by a margin of %.2f' % (blown_out_team_name, ownerer_team_name, biggest_blowout)]
-
-    text = ['Trophies of the week:'] + low_score_str + high_score_str + close_score_str + blowout_str
-    return '\n'.join(text)
 
 
 if __name__ == '__main__':

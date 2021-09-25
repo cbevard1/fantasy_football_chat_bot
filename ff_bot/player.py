@@ -22,7 +22,6 @@ class Player(object):
         self.bye_week = None
         self.image_url = None
 
-
     def _get_player_id(self):
         query_params = self.url.split(r'?')[1]
         kv_pairs = query_params.split(r'&')
@@ -63,4 +62,10 @@ class Player(object):
         return sum(self.points_dict.values())
 
     def __repr__(self):
-        return 'Player(%s)' % (self.name,)
+        return 'Player(name: %s, id: %d)' % (self.name, self.id,)
+
+    def __eq__(self, other):
+        return self.id == other.id
+
+    def __hash__(self):
+        return hash(self.id)

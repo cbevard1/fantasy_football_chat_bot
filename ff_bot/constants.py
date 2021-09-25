@@ -110,6 +110,7 @@ PRO_TEAM_NAMES = ['Arizona Cardinals',
                   'Tennessee Titans',
                   'Washington Football Team']
 
+INACTIVE_INJURY_DESIGNATIONS = ['IR', 'COV', 'O']
 
 '''Nested dictionary that can be used to lookup games schedule. Index by team_id then week'''
 SCHEDULE = {
@@ -126,6 +127,7 @@ SCHEDULE = {
     11: {1: 4, 2: 6, 3: 8, 4: 10, 5: 12, 6: 3, 7: 5, 8: 7, 9: 9, 10: 1, 11: 2, 12: 4, 13: 6, 14: 8},
     12: {1: 3, 2: 5, 3: 7, 4: 9, 5: 11, 6: 2, 7: 4, 8: 6, 9: 8, 10: 10, 11: 1, 12: 3, 13: 5, 14: 7}
 }
+
 '''Map team ids to the manager's discord id for future features like mentioning teams in messages'''
 DISCORD_ID_MAP = {
     1: None if os.getenv('TEAM1_DISCORD_ID') is None or int(os.getenv('TEAM1_DISCORD_ID')) == 0 else int(os.getenv('TEAM1_DISCORD_ID')),
