@@ -31,10 +31,10 @@ class League:
         self.current_week = None
         self.lock = threading.Lock()
         if fetch:
-            print("fetching data...")
             asyncio.get_event_loop().run_until_complete(self.fetch_league())
 
     async def fetch_league(self):
+        print('fetching data...')
         try:
             self.lock.acquire()
             init_start_time = time.time()

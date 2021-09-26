@@ -77,13 +77,14 @@ def get_scoreboard_short(league, week=None):
     return '\n'.join(text)
 
 
-@aiocron.crontab("4,9,14,19,24,29,34,39,44,49,54,59 * * * *", tz=tz)
-async def fetch_data():
-    asyncio.get_event_loop().run_until_complete(league.fetch_league())
+# @aiocron.crontab("4,9,14,19,24,29,34,39,44,49,54,59 * * * *", tz=tz)
+# async def fetch_data():
+#     await league.fetch_league()
 
 
 @aiocron.crontab("30 16 * * 0", tz=tz)
 async def get_projected_scoreboard():
+    await league.fetch_league()
     matchups = league.matchups
     embed = discord.Embed(title="Scoreboard Update")
     embed.set_image(url='https://media0.giphy.com/media/3o6Zt7gUslBylMFTkQ/200.gif')
@@ -96,8 +97,9 @@ async def get_projected_scoreboard():
     await get_channel().send(embed=embed)
 
 
-@aiocron.crontab("30 8 * * 2", tz=tz)
+@aiocron.crontab("0 8 * * 2", tz=tz)
 async def get_standings():
+    await league.fetch_league()
     standings = sorted(league.teams.values(), key=lambda t: t.standing, reverse=False)
     url = "{}/league/{}".format(FANTASY_NFL_ROOT_URL, league.league_id)
     embed = discord.Embed(title="League Standings", url=url)
@@ -108,8 +110,9 @@ async def get_standings():
     await get_channel().send(embed=embed)
 
 
-@aiocron.crontab("30 8 * * *", tz=tz)
+@aiocron.crontab("5 8 * * *", tz=tz)
 async def get_recent_transactions():
+    await league.fetch_league()
     recent_drops = await league.recent_drops()
     recent_adds = await league.recent_adds()
 
@@ -163,35 +166,36 @@ async def get_recent_transactions():
 
 @aiocron.crontab("21 20 * * 4", tz=tz) # 8:20pm, Thursday
 async def blast_thursday_night_inactives():
-    blast_injured_starters()
+    await blast_injured_starters()
 
 
 @aiocron.crontab("31 9 * * 0", tz=tz) # 9:30am, Sunday (London games)
 async def blast_sunday_morning_inactives():
-    blast_injured_starters()
+    await blast_injured_starters()
 
 
 @aiocron.crontab("01 13 * * 0", tz=tz) # 1pm, Sunday
 async def blast_sunday_1pm_inactives():
-    blast_injured_starters()
+    await blast_injured_starters()
 
 
 @aiocron.crontab("06,26 16 * * 0", tz=tz) # 4:05pm & 4:25pm, Sunday
 async def blast_sunday_4pm_inactives():
-    blast_injured_starters()
+    await blast_injured_starters()
 
 
 @aiocron.crontab("21 20 * * 0", tz=tz) # 8:20pm, Sunday
 async def blast_sunday_4pm_inactives():
-    blast_injured_starters()
+    await blast_injured_starters()
 
 
 @aiocron.crontab("16 20 * * 1", tz=tz) # 8:15pm, Monday
 async def blast_sunday_4pm_inactives():
-    blast_injured_starters()
+    await blast_injured_starters()
 
 
 async def blast_injured_starters():
+    await league.fetch_league()
     schedule_url = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?week={}'.format(league.current_week)
     response = urlopen(schedule_url)
     data_json = json.loads(response.read())
@@ -218,14 +222,17 @@ async def blast_injured_starters():
             if player.pro_team in teams_just_started_playing and player.injured_status in INACTIVE_INJURY_DESIGNATIONS and not player.benched:
                 managers_screwups[team_id].append(player)
 
+    mentions = []
     if len(managers_screwups) > 0:
         embed = discord.Embed(title="You started an inactive player...")
         for manager in managers_screwups.keys():
+            if get_member_by_tid(manager) is not None:
+                mentions.append(get_member_by_tid(manager).mention)
             values = [player.name for player in managers_screwups[manager]]
             value_str = '\n'.join(values)
             embed.add_field(name="**{}**".format(league.teams[manager].team_name), value=value_str, inline=False)
         embed.set_image(url='https://thumbs.gfycat.com/MellowTediousCassowary-size_restricted.gif')
-        await get_channel().send(embed=embed)
+        await get_channel().send(' '.join(mentions), embed=embed)
 
 
 def get_power_rankings(league, week=None):
