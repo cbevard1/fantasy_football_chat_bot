@@ -1,18 +1,3 @@
-[![Build Status](https://travis-ci.com/dtcarls/fantasy_football_chat_bot.svg?branch=master)](https://travis-ci.com/dtcarls/fantasy_football_chat_bot)
-[![Codacy Badge](https://api.codacy.com/project/badge/Grade/d8506396005d48d1a52dee114f2c05ae)](https://www.codacy.com/app/dtcarls/ff_bot?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=dtcarls/ff_bot&amp;utm_campaign=Badge_Grade)
-
-For troubleshooting, join the discord!
-
-[![Discord Banner 2](https://discordapp.com/api/guilds/878995504225218620/widget.png?style=banner2)](https://discord.gg/bkShnqTTP8)
-
-Like the bot? Star the repository and consider making a donation to buy me a coffee
-------
-* PayPal:
-[![paypal](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=ZDLFECJVGG6RG&currency_code=USD&source=url)
-* BTC: bc1q3wxm269mdmwdqjqkxgt7s5zp8ah05dexdua0zv
-* ETH: 0x8c096710e3621fe5f8E384efBd17D8E3E798Dc0c
-* DOGE: D6n2g2KGdqEwR4MhhT7uAdvZFaTwqwd6rS
-
 # ESPN Fantasy Football GroupMe Slack and Discord Chat Bot
 
 This package creates a docker container that runs a GroupMe, Discord, or Slack chat bot to send
